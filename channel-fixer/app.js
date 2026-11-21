@@ -53,9 +53,20 @@ function dice(a, b) {
   return (2 * n) / (a.size + b.size);
 }
 function digits(s) { return (s.match(/\d+/g) || []).join(','); }
-function titleCase(s) {
+const SHORT_WORDS = new Set(['NEW', 'THE', 'AND', 'OF', 'ONE', 'TWO', 'SIX', 'TEN', 'ALL', 'BIG', 'HOT', 'RED', 'FOR',
+  'OUR', 'OLD', 'TOP', 'BOX', 'MIX', 'FUN', 'GEM', 'SKY', 'BAY', 'CITY']);
+const NOT_CALL_SIGNS = new Set(['WEST', 'WILD', 'KIDS', 'KING', 'KISS', 'WOOD', 'WEEK', 'WIFE', 'WILL', 'WINE', 'WEB', 'WAY', 'WAR']);
+function titleCase(s, cc) {
   if (/[a-z]/.test(s)) return s; // already mixed case: leave it
-  return s.split(' ').map(w => (w.length > 3 && /^[A-Z]+$/.test(w)) ? w[0] + w.slice(1).toLowerCase() : w).join(' ');
+  return s.split(' ').map(w => {
+    if (!/^[A-Z]+$/.test(w)) return w;
+    // US/Canadian station call signs stay in capitals: WABC, KTLA, CFTO
+    if ((cc === 'US' && /^[WK][A-Z]{2,3}$/.test(w)) || (cc === 'CA' && /^C[A-Z]{3}$/.test(w))) {
+      if (!NOT_CALL_SIGNS.has(w)) return w;
+    }
+    if (w.length > 3 || SHORT_WORDS.has(w)) return w[0] + w.slice(1).toLowerCase();
+    return w; // short acronyms: BBC, CNN, ITV
+  }).join(' ');
 }
 function escapeHtml(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -155,6 +166,8 @@ function cleanName(raw, cc, resolve) {
   }
   // "01. BBC One", "101 - BBC One"
   s = s.replace(/^\s*\d{1,4}\s*[.):\-]\s+/, '');
+  // leading tags: "(EAST) CNN", "[HD] HGTV"
+  s = s.replace(/^\s*[\[(][^\])]{1,10}[\])]\s*/, '');
   const quality = qualityOf(s);
   const hevc = /\b(?:hevc|h\.?265|x265)\b/i.test(s);
   const backup = /\b(?:backup|bkp|alt|alternative|b\/u)\b|\(\s*(?:2|b|alt)\s*\)/i.test(s);
@@ -499,7 +512,7 @@ function buildChannels(entries, cat, overrides, opts) {
     ch.ov = ov;
     ch.variants.sort((a, b) => variantScore(a, order) - variantScore(b, order));
     const best = ch.variants[0];
-    let name = m ? m.ch.name + (m.feed ? ' ' + m.feed.name : '') : titleCase(best.clean);
+    let name = m ? m.ch.name + (m.feed ? ' ' + m.feed.name : '') : titleCase(best.clean, ch.cc);
     if (ch.timeshift) name += ' +' + ch.timeshift;
     ch.autoName = name;
     ch.name = ov.name || name;
@@ -617,12 +630,21 @@ function buildChannels(entries, cat, overrides, opts) {
 // "Popular channels only": keep just the channels on a country's list in curated.js.
 const PREFERRED_LOCAL = /east|newyork|nyc|toronto|sydney/;
 const OK_SUFFIX = /^(?:east|west|pacific|hd|usa|us|tv|channel|network|canada|ca|au|australia|\d{1,2})?$/;
+function tokens(s) {
+  return String(s || '').normalize('NFKD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/&/g, ' and ').replace(/\+/g, ' plus ').split(/[^a-z0-9]+/).filter(Boolean);
+}
 function curatedEntries(list) {
   const out = [];
   for (const [cat, names] of Object.entries(list)) {
     // "Seven* | Channel 7*": different spellings of one channel; only one is kept
     for (const n of names) {
-      const alts = n.split('|').map(x => x.trim()).filter(Boolean).map(x => ({ wild: x.endsWith('*'), key: norm(x.replace(/\*$/, '')) }));
+      const alts = n.split('|').map(x => x.trim()).filter(Boolean).map(x => {
+        const plain = x.replace(/\*$/, '');
+        // single short words ("FX", "W", "10") are too common to look for inside other names
+        const words = tokens(plain);
+        return { wild: x.endsWith('*'), key: norm(plain), words: words.length > 1 || norm(plain).length >= 3 ? words : [] };
+      });
       out.push({ cat, alts, rank: out.length });
     }
   }
@@ -641,6 +663,16 @@ function curatedScore(entry, ch) {
       const rest = k.slice(e.key.length);
       if (e.wild) s = 2 + (PREFERRED_LOCAL.test(rest) ? 0 : 1) + rest.length / 100;
       else if (OK_SUFFIX.test(rest)) s = 1 + (/west|pacific/.test(rest) ? 0.5 : 0);
+    }
+    // looser: the list name appears as whole words anywhere ("(EAST) CNN", "WABC ABC 7 New York")
+    if (s === null && e.words.length) {
+      const words = tokens(n);
+      for (let i = 0; i + e.words.length <= words.length; i++) {
+        if (e.words.every((w, j) => words[i + j] === w)) {
+          s = 4 + (words.length - e.words.length) / 10 + (PREFERRED_LOCAL.test(norm(n)) ? 0 : 0.5);
+          break;
+        }
+      }
     }
     if (s !== null && (best === null || s < best)) best = s;
   }

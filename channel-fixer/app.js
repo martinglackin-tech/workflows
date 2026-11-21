@@ -525,6 +525,9 @@ function buildChannels(entries, cat, overrides, opts) {
   const byKey = new Map(channels.map(c => [c.key, c]));
   const userWords = wordFilter(opts.excludeWords);
   const keepRules = parseKeep(opts.keepText);
+  const lists = opts.curatedLists || (typeof window !== 'undefined' && window.CURATED_CHANNELS) || {};
+  const curatedCcs = new Set((opts.curate || []).filter(cc => lists[cc]));
+  const regionalKeep = new Set(String(opts.regionalKeep || '').toUpperCase().split(/[\s,]+/).filter(Boolean));
   for (const ch of channels) {
     ch.english = isEnglishChannel(ch);
     ch.crime = isTrueCrime(ch);
@@ -533,6 +536,11 @@ function buildChannels(entries, cat, overrides, opts) {
     else if (opts.englishOnly && !ch.english) reason = 'not English';
     else if (opts.noSports && ch.cat === 'Sports') reason = 'sports';
     else if (opts.noCrime && ch.crime) reason = 'true crime';
+    else if (opts.noReligion && ch.cat === 'Religious') reason = 'religion';
+    else if (opts.noKids && ch.cat === 'Kids') reason = 'kids';
+    // in "popular only" countries the list itself picks one station per network and sets the group
+    else if (opts.noOther && ch.cat === 'Other' && !curatedCcs.has(ch.cc)) reason = 'other';
+    else if (opts.noRegional && ch.isRegional && !regionalKeep.has(ch.cc) && !curatedCcs.has(ch.cc)) reason = 'regional';
     else if (userWords(ch)) reason = 'your words';
     else if (ch.status === 'unmatched' && !opts.unmatched) reason = 'unrecognised';
     else if ((ch.isRegional || ch.timeshift) && opts.regional === 'hide' && !ch.ov.cat) reason = 'regional';
@@ -543,7 +551,6 @@ function buildChannels(entries, cat, overrides, opts) {
     ch.excluded = reason;
     ch.out = !reason;
   }
-  const lists = opts.curatedLists || (typeof window !== 'undefined' && window.CURATED_CHANNELS) || {};
   for (const cc of opts.curate || []) {
     if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 100);
   }
@@ -728,7 +735,8 @@ if (typeof document !== 'undefined') (function page() {
     page: 0, testing: false,
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider', englishOnly: true, noSports: true, noCrime: true,
-      excludeWords: '', perCountry: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 100,
+      excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
+      regionalKeep: 'UK', curate: ['US', 'CA', 'AU'], maxPerCountry: 100,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -950,7 +958,10 @@ if (typeof document !== 'undefined') (function page() {
       $(sel).addEventListener('change', e => { S.opts[key] = e.target.value; saveSettings(); rebuild(); });
     }
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
-      '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry' };
+      '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
+      '#opt-religion': 'noReligion', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional' };
+    $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
+    $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
     $('#opt-keep').addEventListener('change', e => { S.opts.keepText = e.target.value; saveSettings(); rebuild(); });
     $('#opt-max').value = S.opts.maxPerCountry || 100;

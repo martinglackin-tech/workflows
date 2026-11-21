@@ -9,7 +9,7 @@ Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlis
 - **Regional and +1 versions** (BBC One London, ITV1 Granada, E4 +1) go in their own group, straight after the main channel, or are hidden.
 - **Pick your countries** in the order you want them. Nothing is deleted, so you can change them at any time.
 - **One playlist per country** (or one combined), each numbered from 1, to add to TiviMate separately.
-- **Leave out** channels that aren't in English, sports channels, true crime channels, and any words you list (for example `shopping, quiz`).
+- **Leave out** channels that aren't in English, sports, true crime, religious, kids, channels that don't fit a group ("Other"), regional versions (except for countries you name, UK by default), and any words you list (for example `shopping, quiz`).
 - **Popular channels only** for the US, Canada and Australia: keeps just the best-known entertainment, film and news channels (up to 100 each, one local station per network), in TV order. The lists are in `curated.js`, most popular first, and are easy to edit.
 - **Always include**: channels to keep even when a filter would drop them, for example `Sky Sports Tennis: FHD, HD` keeps both copies as separate channels, which helps when one copy stops working.
 - **Fix anything by hand**: rename, change the group, set a logo, re-match or hide a channel. Your fixes are saved and reapplied every time you rebuild.

@@ -73,7 +73,12 @@ function makeCountryResolver(countryCodes) {
     return null;
   };
 }
-const PREFIX_RE = /^\s*[\[(|{]?\s*([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?)\s*(?:[\])|}:\-–—»>➤►▶•⋆★✪|*#/\\]+|\s[|•⋆★»➤►▶]+)\s*/u;
+// "UK: ", "|US| ", "US ➾ ", "[DE] ", "US (EAST): " … any run of symbols after a 2–3 letter code
+const PREFIX_RE = /^\s*[\[(|{]?\s*([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?)\s*(?:\(([^)]{1,12})\))?\s*[\])}]?\s*[^\p{L}\p{N}\s(]+\s*/u;
+// "US CNN": a bare code and a space, only for these upper-case codes
+const SPACE_PREFIX_RE = /^\s*(UK|US|USA|CA|CAN|AU|AUS|IE|NZ)\s+(?=\S)/;
+// "EN| CNN": a language tag rather than a country
+const LANG_PREFIX_RE = /^\s*[\[(|]?\s*(EN|ENG)\s*[^\p{L}\p{N}\s]+\s*/u;
 function countryFromText(text, resolve) {
   if (!text) return null;
   const s = text.normalize('NFKC');
@@ -143,6 +148,11 @@ function cleanName(raw, cc, resolve) {
   let nameCc = null;
   const m = s.match(PREFIX_RE);
   if (m && resolve(m[1])) { nameCc = resolve(m[1]); s = s.slice(m[0].length); }
+  else {
+    const sp = s.match(SPACE_PREFIX_RE);
+    if (sp && resolve(sp[1])) { nameCc = resolve(sp[1]); s = s.slice(sp[0].length); }
+    else { const lp = s.match(LANG_PREFIX_RE); if (lp) s = s.slice(lp[0].length); }
+  }
   // "01. BBC One", "101 - BBC One"
   s = s.replace(/^\s*\d{1,4}\s*[.):\-]\s+/, '');
   const quality = qualityOf(s);
@@ -1182,16 +1192,16 @@ if (typeof document !== 'undefined') (function page() {
 
   // ---------- unrecognised list (names and groups only, never the login or stream links)
   $('#btn-export-unrec').addEventListener('click', () => {
-    const rows = S.channels.filter(c => c.status === 'unmatched' || c.status === 'fuzzy');
-    const lines = ['status\tcleaned name\tprovider name\tprovider group'];
+    const rows = S.channels;
+    const lines = ['country\tresult\tchannel\tgroup\tmatch\tprovider name\tprovider group'];
     for (const c of rows) for (const v of c.variants) {
-      lines.push([c.status === 'fuzzy' ? 'guessed: ' + c.name : 'unrecognised', v.clean, v.name, v.group]
+      lines.push([c.cc, c.out ? 'kept' : 'left out: ' + c.excluded, c.name, c.group, c.status, v.name, v.group]
         .map(x => String(x).replace(/[\t\r\n]+/g, ' ')).join('\t'));
     }
     const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
-    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'channel-fixer-unrecognised.txt' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'channel-fixer-report.txt' });
     document.body.appendChild(a); a.click(); a.remove();
-    setStatus($('#test-status'), `Saved ${rows.length.toLocaleString()} channels to channel-fixer-unrecognised.txt.`, 'ok');
+    setStatus($('#test-status'), `Saved ${rows.length.toLocaleString()} channels to channel-fixer-report.txt.`, 'ok');
   });
 
   // ---------- export: one playlist per country (or one for all)
@@ -1214,6 +1224,11 @@ if (typeof document !== 'undefined') (function page() {
     }
     return lists;
   }
+  function leftOut(l) {
+    const n = {};
+    for (const c of l.channels) if (!c.out) n[c.excluded] = (n[c.excluded] || 0) + 1;
+    return Object.entries(n).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${v.toLocaleString()} ${k}`).join(', ');
+  }
   function playlistId(cc) { return cc === 'ZZ' ? 'other' : cc.toLowerCase(); }
   let plTimer = null;
   function schedulePlaylists() { clearTimeout(plTimer); plTimer = setTimeout(renderPlaylists, 250); }
@@ -1222,7 +1237,8 @@ if (typeof document !== 'undefined') (function page() {
     S.playlists = makePlaylists();
     const link = l => S.shareBase ? `<code>${escapeHtml(S.shareBase)}/playlists/${escapeHtml(l.file)}</code>` : '';
     $('#playlists').innerHTML = S.playlists.map(l => `<div class="playlist">
-      <span><b>${escapeHtml(l.title)}</b> <small>${l.count.toLocaleString()} channels</small><br>${link(l)}</span>
+      <span><b>${escapeHtml(l.title)}</b> <small>${l.count.toLocaleString()} channels</small><br>${link(l)}
+      ${leftOut(l) ? `<small>Left out: ${escapeHtml(leftOut(l))}</small>` : ''}</span>
       <button class="btn" data-dl="${escapeHtml(l.id)}">Download</button></div>`).join('')
       || '<p class="hint">Tick at least one country.</p>';
   }

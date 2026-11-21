@@ -661,6 +661,19 @@ function buildChannels(entries, cat, overrides, opts) {
       if (ch.out && !ch.ov.logo && ch.ov.hidden !== false && !(ch.logo || '').startsWith('/logos/')) { ch.out = false; ch.excluded = 'no logo'; }
     }
   }
+  // Seasonal takeovers: "Great! Xmas > GREAT! romance" — while both exist, show only Great! Xmas (its own name and
+  // logo) with GREAT! romance's guide; when the takeover ends and Great! Xmas disappears, GREAT! romance is back.
+  const takeovers = String(opts.takeovers || '').split('\n').map(l => l.split('>').map(x => norm(x)))
+    .filter(p => p.length === 2 && p[0] && p[1]);
+  const named = k => channels.find(c => [c.name, c.autoName, ...c.variants.map(v => v.clean)].some(n => n && norm(n) === k)
+    && !c.excluded.startsWith('hidden'));
+  for (const [newKey, oldKey] of takeovers) {
+    const a = named(newKey), b = named(oldKey);
+    if (!a || !b || a === b || a.cc !== b.cc) continue;
+    b.out = false; b.excluded = `replaced by ${a.name}`;
+    a.epgId = b.epgId || a.epgId; a.takesOver = b.name;
+    if (a.ov.hidden !== true && !(a.excluded === 'adult')) { a.out = true; a.excluded = ''; }
+  }
   // Placement of regional / +1 versions
   for (const ch of channels) {
     ch.after = null;
@@ -888,7 +901,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, copyPrefs: 'HGTV: West', epgFill: true, epgPreferFree: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, copyPrefs: 'HGTV: West', takeovers: 'Great! Xmas > GREAT! romance', epgFill: true, epgPreferFree: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1122,6 +1135,8 @@ if (typeof document !== 'undefined') (function page() {
       '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo', '#opt-epgfill': 'epgFill', '#opt-epgfree': 'epgPreferFree' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
+    $('#opt-takeovers').value = S.opts.takeovers || '';
+    $('#opt-takeovers').addEventListener('change', e => { S.opts.takeovers = e.target.value; saveSettings(); rebuild(); });
     $('#opt-copyprefs').value = S.opts.copyPrefs || '';
     $('#opt-copyprefs').addEventListener('change', e => { S.opts.copyPrefs = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
@@ -1501,7 +1516,7 @@ if (typeof document !== 'undefined') (function page() {
     for (const l of S.playlists || []) for (const c of l.channels) {
       if (!c.out || seen.has(c.key)) continue;
       const m = c.match;
-      seen.set(c.key, { key: c.key, epgId: c.epgId || '', cc: c.cc, names: [...new Set([c.name, c.autoName,
+      seen.set(c.key, { key: c.key, epgId: c.epgId || '', cc: c.cc, names: [...new Set([c.takesOver, c.name, c.autoName,
         m && !m.feed ? m.ch.name : null, ...(m && !m.feed ? m.ch.alt : []), ...c.variants.map(v => v.clean),
         ...c.variants.map(v => v.name)].filter(Boolean))] });
     }

@@ -482,7 +482,7 @@ function buildChannels(entries, cat, overrides, opts) {
   const curatedRank = {};
   for (const [cc, list] of Object.entries(CURATED_MAIN)) curatedRank[cc] = new Map(list.map((n, i) => [norm(n), i]));
 
-  const channels = [...map.values()];
+  let channels = [...map.values()];
   for (const ch of channels) {
     const m = ch.match;
     const ov = ovChan[ch.key] || {};
@@ -524,6 +524,7 @@ function buildChannels(entries, cat, overrides, opts) {
   // Exclusions
   const byKey = new Map(channels.map(c => [c.key, c]));
   const userWords = wordFilter(opts.excludeWords);
+  const keepRules = parseKeep(opts.keepText);
   for (const ch of channels) {
     ch.english = isEnglishChannel(ch);
     ch.crime = isTrueCrime(ch);
@@ -535,10 +536,16 @@ function buildChannels(entries, cat, overrides, opts) {
     else if (userWords(ch)) reason = 'your words';
     else if (ch.status === 'unmatched' && !opts.unmatched) reason = 'unrecognised';
     else if ((ch.isRegional || ch.timeshift) && opts.regional === 'hide' && !ch.ov.cat) reason = 'regional';
+    ch.keep = keepRule(keepRules, ch);
+    if (ch.keep && reason !== 'adult') reason = '';
     if (ch.ov.hidden === true) reason = 'hidden';
     if (ch.ov.hidden === false) reason = '';
     ch.excluded = reason;
     ch.out = !reason;
+  }
+  const lists = opts.curatedLists || (typeof window !== 'undefined' && window.CURATED_CHANNELS) || {};
+  for (const cc of opts.curate || []) {
+    if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 100);
   }
   // Placement of regional / +1 versions
   for (const ch of channels) {
@@ -548,6 +555,16 @@ function buildChannels(entries, cat, overrides, opts) {
     if (opts.regional === 'after' && main && main.out) { ch.after = main; ch.cat = main.cat; }
     else if (opts.regional !== 'after') ch.cat = ch.timeshift ? '+1 Channels' : 'Regional';
   }
+  // Kept channels with chosen qualities become one channel per quality ("Sky Sports Tennis FHD", "… HD")
+  channels = channels.flatMap(ch => {
+    if (!ch.out || !ch.keep || !ch.keep.qualities.length) return [ch];
+    const copies = [];
+    for (const q of ch.keep.qualities) {
+      const vs = ch.variants.filter(v => (v.quality || 2) === q);
+      if (vs.length) copies.push({ ...ch, key: `${ch.key}#${q}`, name: `${ch.name} ${SPLIT_LABEL[q]}`, variants: vs });
+    }
+    return copies.length ? copies : [ch];
+  });
   // Order: countries (tick order) → category → curated rank → name; "after" items follow their main
   const ccOrder = new Map(opts.countries.map((c, i) => [c, i]));
   const catOrder = new Map(CATEGORIES.map((c, i) => [c, i]));
@@ -576,49 +593,84 @@ function buildChannels(entries, cat, overrides, opts) {
   }
   return ordered;
 }
-// Tennis playlist: tennis channels and tournament feeds from every country, plus each
-// Grand Slam's broadcasters (from tennis-rights.js). A channel can sit in several groups.
-function rightsMatch(pattern, ch) {
-  const wild = pattern.endsWith('*');
-  const pk = norm(pattern.replace(/\*$/, ''));
-  const names = [ch.name, ch.match && ch.match.ch.name, ch.variants[0].clean];
-  return names.some(n => {
-    if (!n) return false;
-    const k = norm(n);
-    if (wild) return k.startsWith(pk);
-    return k === pk || (k.startsWith(pk) && /^(?:\d{1,2}|hd|fhd|uhd|4k)$/.test(k.slice(pk.length)));
-  });
-}
-function buildTennis(entries, cat, overrides, opts, T) {
-  const all = [...new Set(entries.map(e => e.cc))];
-  const chans = buildChannels(entries, cat, overrides, { ...opts, countries: all, noFuzzy: true, noSports: false,
-    englishOnly: false, noCrime: false, excludeWords: '', unmatched: true, regional: 'group', perCountry: false });
-  const groups = new Map([['Tennis Channels', []], ...T.slams.map(s => [s, []])]);
-  for (const c of chans) {
-    if (c.adult || c.timeshift || (c.match && c.match.feed) || c.ov.hidden === true) continue;
-    if (opts.tennisEnglish && !c.english) continue;
-    const text = [c.name, ...c.variants.map(v => `${v.name} ${v.group}`)].join(' | ');
-    const events = T.slams.filter(s => T.slamWords[s].test(text) && !(s === 'US Open' && /golf/i.test(text)));
-    const tennis = T.tennisWords.test(text) || events.length > 0;
-    const add = (g, kind) => { const list = groups.get(g); if (!list.some(x => x.c === c)) list.push({ c, kind }); };
-    for (const s of events) add(s, 'event');
-    if (tennis && !events.length) add('Tennis Channels', 'event');
-    for (const r of T.rights) if (r.cc.includes(c.cc) && r.channels.some(p => rightsMatch(p, c))) add(r.slam, 'broadcaster');
-  }
-  const ccOrder = cc => { const i = opts.countries.indexOf(cc); return i >= 0 ? i : 100; };
-  const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-  const home = opts.countries[0];
-  const rows = [];
-  let no = 0;
-  for (const [g, list] of groups) {
-    list.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'event' ? -1 : 1) || (ccOrder(a.c.cc) - ccOrder(b.c.cc))
-      || a.c.cc.localeCompare(b.c.cc) || collator.compare(a.c.name, b.c.name));
-    for (const { c, kind } of list) {
-      rows.push({ ...c, name: c.cc === home ? c.name : `${c.name} (${countryLabelShort(c.cc)})`, group: g,
-        chno: ++no, out: true, kind });
+// "Popular channels only": keep just the channels on a country's list in curated.js.
+const PREFERRED_LOCAL = /east|newyork|nyc|toronto|sydney/;
+const OK_SUFFIX = /^(?:east|west|pacific|hd|usa|us|tv|channel|network|canada|ca|au|australia|\d{1,2})?$/;
+function curatedEntries(list) {
+  const out = [];
+  for (const [cat, names] of Object.entries(list)) {
+    // "Seven* | Channel 7*": different spellings of one channel; only one is kept
+    for (const n of names) {
+      const alts = n.split('|').map(x => x.trim()).filter(Boolean).map(x => ({ wild: x.endsWith('*'), key: norm(x.replace(/\*$/, '')) }));
+      out.push({ cat, alts, rank: out.length });
     }
   }
-  return rows;
+  return out;
+}
+function curatedScore(entry, ch) {
+  let best = null;
+  // a regional feed ("Channel 7 Melbourne") is scored by its own name, not as the main channel
+  const names = [ch.name, ch.autoName, ch.match && !ch.match.feed && ch.match.ch.name, ch.variants[0].clean];
+  for (const e of entry.alts) for (const n of names) {
+    if (!n) continue;
+    const k = norm(n);
+    let s = null;
+    if (k === e.key) s = 0;
+    else if (e.key && k.startsWith(e.key)) {
+      const rest = k.slice(e.key.length);
+      if (e.wild) s = 2 + (PREFERRED_LOCAL.test(rest) ? 0 : 1) + rest.length / 100;
+      else if (OK_SUFFIX.test(rest)) s = 1 + (/west|pacific/.test(rest) ? 0.5 : 0);
+    }
+    if (s !== null && (best === null || s < best)) best = s;
+  }
+  return best;
+}
+function curate(chs, list, max) {
+  const entries = curatedEntries(list);
+  const free = ch => ch.out && !ch.keep && ch.ov.hidden !== false;
+  const pick = new Map();
+  for (const ch of chs) {
+    if (!free(ch)) continue;
+    let best = null;
+    for (const e of entries) {
+      const s = curatedScore(e, ch);
+      if (s !== null && (!best || s < best.s)) best = { e, s };
+    }
+    if (!best) continue;
+    const cur = pick.get(best.e);
+    if (!cur || best.s < cur.s) pick.set(best.e, { ch, s: best.s });
+  }
+  // one station per network: "Seven Sydney" and "Channel 7 Melbourne" are the same channel
+  const used = new Set();
+  const ranked = [...pick.entries()].sort((a, b) => a[0].rank - b[0].rank).filter(([, { ch }]) => {
+    const id = ch.match ? ch.match.ch.id + (ch.timeshift ? '+' + ch.timeshift : '') : ch.key;
+    if (used.has(id)) return false;
+    used.add(id); return true;
+  });
+  const chosen = new Map(ranked.map(([e, { ch }], i) => [ch, { e, over: i >= max }]));
+  for (const ch of chs) {
+    if (!free(ch)) continue;
+    const c = chosen.get(ch);
+    if (!c || c.over) { ch.out = false; ch.excluded = c ? 'over the limit' : 'not in popular list'; continue; }
+    if (!ch.ov.cat) ch.cat = c.e.cat;
+    ch.rank = c.e.rank;
+    ch.isRegional = false; // "AMC East" is the channel itself here, not a regional extra
+    ch.mainKey = null;
+  }
+}
+// "Always include": one channel per line, optionally "Name: FHD, HD" to keep those copies as separate channels.
+const QUALITY_WORDS = { uhd: 4, '4k': 4, fhd: 3, hd: 2, sd: 1 };
+const SPLIT_LABEL = { 4: 'UHD', 3: 'FHD', 2: 'HD', 1: 'SD' };
+function parseKeep(text) {
+  return String(text || '').split(/\n/).map(l => l.trim()).filter(Boolean).map(l => {
+    const [name, q] = l.split(':');
+    const qualities = q ? q.split(/[,\s]+/).map(x => QUALITY_WORDS[x.toLowerCase()]).filter(Boolean) : [];
+    return { key: norm(name), qualities };
+  }).filter(r => r.key);
+}
+function keepRule(rules, ch) {
+  const names = [ch.autoName, ch.match && ch.match.ch.name, ch.variants[0].clean].filter(Boolean).map(norm);
+  return rules.find(r => names.includes(r.key)) || null;
 }
 function variantScore(v, order) {
   const q = v.quality || 2;
@@ -661,7 +713,7 @@ function buildM3U(channels, ctx) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { buildTennis, rightsMatch, isEnglishChannel, buildLogoIndex, findTvLogo, isBlockedLogo, norm, cleanName, countryFromText, makeCountryResolver, buildCatalog, matchExact, matchFuzzy,
+  module.exports = { parseKeep, isEnglishChannel, buildLogoIndex, findTvLogo, isBlockedLogo, norm, cleanName, countryFromText, makeCountryResolver, buildCatalog, matchExact, matchFuzzy,
     parseM3U, prepareEntries, buildChannels, buildM3U, parseXtreamLink, normaliseServer, isLiveUrl };
 }
 
@@ -676,7 +728,8 @@ if (typeof document !== 'undefined') (function page() {
     page: 0, testing: false,
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider', englishOnly: true, noSports: true, noCrime: true,
-      excludeWords: '', perCountry: true, tennis: true, tennisEnglish: true },
+      excludeWords: '', perCountry: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 100,
+      keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
@@ -897,14 +950,30 @@ if (typeof document !== 'undefined') (function page() {
       $(sel).addEventListener('change', e => { S.opts[key] = e.target.value; saveSettings(); rebuild(); });
     }
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
-      '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
-      '#opt-tennis': 'tennis', '#opt-tennis-english': 'tennisEnglish' };
+      '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry' };
+    $('#opt-keep').value = S.opts.keepText || '';
+    $('#opt-keep').addEventListener('change', e => { S.opts.keepText = e.target.value; saveSettings(); rebuild(); });
+    $('#opt-max').value = S.opts.maxPerCountry || 100;
+    $('#opt-max').addEventListener('change', e => { S.opts.maxPerCountry = Math.max(1, Number(e.target.value) || 100); saveSettings(); rebuild(); });
+    $('#curate-box').addEventListener('change', e => {
+      const cc = e.target.value; if (!cc) return;
+      const set = new Set(S.opts.curate || []);
+      if (e.target.checked) set.add(cc); else set.delete(cc);
+      S.opts.curate = [...set]; saveSettings(); rebuild();
+    });
     $('#opt-words').value = S.opts.excludeWords || '';
     $('#opt-words').addEventListener('change', e => { S.opts.excludeWords = e.target.value; saveSettings(); rebuild(); });
     for (const [sel, key] of Object.entries(checks)) {
       $(sel).checked = !!S.opts[key];
       $(sel).addEventListener('change', e => { S.opts[key] = e.target.checked; saveSettings(); rebuild(); });
     }
+  }
+  function renderCurate() {
+    const lists = window.CURATED_CHANNELS || {};
+    const ccs = S.opts.countries.filter(cc => lists[cc]);
+    $('#curate-wrap').classList.toggle('hidden', !ccs.length);
+    $('#curate-box').innerHTML = ccs.map(cc => `<label class="check"><input type="checkbox" value="${escapeHtml(cc)}"
+      ${(S.opts.curate || []).includes(cc) ? 'checked' : ''}> ${escapeHtml(countryLabel(cc))}: most popular entertainment, film and news only</label>`).join('');
   }
   function saveSettings() { store.set('cf-settings', S.opts); }
 
@@ -913,7 +982,7 @@ if (typeof document !== 'undefined') (function page() {
     if (!S.entries.length) return;
     S.channels = buildChannels(S.entries, S.cat, S.overrides, S.opts);
     if (!keepPage) S.page = 0;
-    renderStats(); renderGroupFilter(); renderRows(); schedulePlaylists();
+    renderCurate(); renderStats(); renderGroupFilter(); renderRows(); schedulePlaylists();
   }
   function renderStats() {
     const out = S.channels.filter(c => c.out);
@@ -1015,12 +1084,8 @@ if (typeof document !== 'undefined') (function page() {
     }
     if (el.dataset.act === 'match') openMatch(c);
   });
-  function autoReason(c) {
-    if (c.adult && S.opts.adult) return 'adult';
-    if (c.status === 'unmatched' && !S.opts.unmatched) return 'unrecognised';
-    if ((c.isRegional || c.timeshift) && S.opts.regional === 'hide') return 'regional';
-    return '';
-  }
+  function autoReason(c) { return c.excluded && c.excluded !== 'hidden' ? c.excluded : ''; }
+
 
   // ---------- match dialog
   const dlg = $('#match-dialog');
@@ -1114,7 +1179,7 @@ if (typeof document !== 'undefined') (function page() {
     setStatus($('#test-status'), `Saved ${rows.length.toLocaleString()} channels to channel-fixer-unrecognised.txt.`, 'ok');
   });
 
-  // ---------- export: one playlist per country (or one for all) plus the Tennis playlist
+  // ---------- export: one playlist per country (or one for all)
   function makePlaylists() {
     const lists = [];
     const cs = S.opts.countries;
@@ -1127,14 +1192,10 @@ if (typeof document !== 'undefined') (function page() {
       lists.push({ id: cs.length === 1 ? playlistId(cs[0]) : 'all', title: cs.length === 1 ? countryLabel(cs[0]) : 'All my countries',
         multi: cs.length > 1, channels: S.channels });
     }
-    if (S.opts.tennis && window.TENNIS_RIGHTS) {
-      lists.push({ id: 'tennis', title: '🎾 Tennis', multi: false, tennis: true,
-        channels: buildTennis(S.entries, S.cat, S.overrides, S.opts, window.TENNIS_RIGHTS) });
-    }
     for (const l of lists) {
       l.count = l.channels.filter(c => c.out).length;
       l.file = `${l.id}.m3u`;
-      l.text = () => buildM3U(l.channels, { epg: S.epg, streamUrl, backups: S.opts.backups && !l.tennis, multi: l.multi });
+      l.text = () => buildM3U(l.channels, { epg: S.epg, streamUrl, backups: S.opts.backups, multi: l.multi });
     }
     return lists;
   }
@@ -1149,14 +1210,6 @@ if (typeof document !== 'undefined') (function page() {
       <span><b>${escapeHtml(l.title)}</b> <small>${l.count.toLocaleString()} channels</small><br>${link(l)}</span>
       <button class="btn" data-dl="${escapeHtml(l.id)}">Download</button></div>`).join('')
       || '<p class="hint">Tick at least one country.</p>';
-    const tennis = S.playlists.find(l => l.tennis);
-    $('#tennis-preview').classList.toggle('hidden', !tennis);
-    if (tennis) {
-      const groups = new Map();
-      for (const c of tennis.channels) { if (!groups.has(c.group)) groups.set(c.group, []); groups.get(c.group).push(c.name); }
-      $('#tennis-list').innerHTML = [...groups].map(([g, names]) => `<h4>${escapeHtml(g)} (${names.length})</h4><p>${escapeHtml(names.join(' · '))}</p>`).join('')
-        || '<p>No tennis channels or Grand Slam broadcasters were found in your list.</p>';
-    }
   }
   const exportStatus = $('#export-status');
   $('#playlists').addEventListener('click', e => {

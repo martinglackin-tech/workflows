@@ -10,7 +10,8 @@ Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlis
 - **Pick your countries** in the order you want them. Nothing is deleted, so you can change them at any time.
 - **One playlist per country** (or one combined), each numbered from 1, to add to TiviMate separately.
 - **Leave out** channels that aren't in English, sports channels, true crime channels, and any words you list (for example `shopping, quiz`).
-- **Tennis playlist**: dedicated tennis channels and tournament feeds from every country, plus a group for each Grand Slam with the channels that broadcast it around the world. The broadcaster list is in `tennis-rights.js`. Rights change, so edit it whenever you need to; it's written to be readable.
+- **Popular channels only** for the US, Canada and Australia: keeps just the best-known entertainment, film and news channels (up to 100 each, one local station per network), in TV order. The lists are in `curated.js`, most popular first, and are easy to edit.
+- **Always include**: channels to keep even when a filter would drop them, for example `Sky Sports Tennis: FHD, HD` keeps both copies as separate channels, which helps when one copy stops working.
 - **Fix anything by hand**: rename, change the group, set a logo, re-match or hide a channel. Your fixes are saved and reapplied every time you rebuild.
 - Keeps the **TV guide** (your provider's EPG link and IDs) and **catch-up** information.
 

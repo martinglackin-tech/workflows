@@ -28,7 +28,7 @@ STATIC = {
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
-    "/tennis-rights.js": ("tennis-rights.js", "text/javascript; charset=utf-8"),
+    "/curated.js": ("curated.js", "text/javascript; charset=utf-8"),
 }
 IPTV_ORG_API = "https://iptv-org.github.io/api/"
 IPTV_FILES = {"channels", "logos", "feeds", "countries"}

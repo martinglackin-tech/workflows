@@ -661,8 +661,9 @@ function buildChannels(entries, cat, overrides, opts) {
       if (ch.out && !ch.ov.logo && ch.ov.hidden !== false && !(ch.logo || '').startsWith('/logos/')) { ch.out = false; ch.excluded = 'no logo'; }
     }
   }
-  // Seasonal takeovers: "Great! Xmas > GREAT! romance" — while both exist, show only Great! Xmas (its own name and
-  // logo) with GREAT! romance's guide; when the takeover ends and Great! Xmas disappears, GREAT! romance is back.
+  // Seasonal takeovers: "Great! Xmas > GREAT! romance" — while both exist, GREAT! romance's stream and guide are shown
+  // under Great! Xmas's name and logo, and the separate Great! Xmas entry is dropped. When the takeover ends and
+  // Great! Xmas disappears from the provider's list, GREAT! romance is back as itself.
   const takeovers = String(opts.takeovers || '').split('\n').map(l => l.split('>').map(x => norm(x)))
     .filter(p => p.length === 2 && p[0] && p[1]);
   const named = k => channels.find(c => [c.name, c.autoName, ...c.variants.map(v => v.clean)].some(n => n && norm(n) === k)
@@ -670,9 +671,11 @@ function buildChannels(entries, cat, overrides, opts) {
   for (const [newKey, oldKey] of takeovers) {
     const a = named(newKey), b = named(oldKey);
     if (!a || !b || a === b || a.cc !== b.cc) continue;
-    b.out = false; b.excluded = `replaced by ${a.name}`;
-    a.epgId = b.epgId || a.epgId; a.takesOver = b.name;
-    if (a.ov.hidden !== true && !(a.excluded === 'adult')) { a.out = true; a.excluded = ''; }
+    a.out = false; a.excluded = `shown on ${b.name}'s stream`;
+    b.takesOver = b.name;                         // keep looking up the guide under the original name
+    if (!b.ov.name) b.name = a.name;
+    if (!b.ov.logo) b.logo = a.logo || b.logo;
+    if (b.ov.hidden !== true && b.excluded !== 'adult') { b.out = true; b.excluded = ''; }
   }
   // Placement of regional / +1 versions
   for (const ch of channels) {

@@ -570,6 +570,11 @@ function buildChannels(entries, cat, overrides, opts) {
     const ov = ovChan[ch.key] || {};
     ch.ov = ov;
     ch.variants.sort((a, b) => variantScore(a, order) - variantScore(b, order));
+    // a copy you picked yourself ("Use this copy") always comes first
+    if (ov.copy) {
+      const i = ch.variants.findIndex(v => v.name === ov.copy);
+      if (i > 0) ch.variants.unshift(ch.variants.splice(i, 1)[0]);
+    }
     const best = ch.variants[0];
     let name = m ? m.ch.name + (m.feed ? ' ' + m.feed.name : '') : titleCase(best.clean, ch.cc);
     if (ch.timeshift) name += ' +' + ch.timeshift;
@@ -1234,7 +1239,7 @@ if (typeof document !== 'undefined') (function page() {
       const v0 = c.variants[0];
       const variants = c.variants.map((v, i) => `<li>${escapeHtml(v.name)} <small>${escapeHtml(v.group)}</small>`
         + `${v.test === 'ok' ? ' <span class="badge ok">plays</span>' : v.test === 'fail' ? ' <span class="badge bad">failed</span>' : ''}`
-        + `${i === 0 ? ' <span class="badge">used</span>' : ''}</li>`).join('');
+        + `${i === 0 ? ' <span class="badge">used</span>' : ` <button class="btn tiny" data-act="copy" data-copy="${escapeHtml(v.name)}">Use this copy</button>`}</li>`).join('');
       return `<tr data-key="${escapeHtml(c.key)}" class="${c.out ? '' : 'off'}">
         <td class="no">${c.chno || ''}</td>
         <td><div class="logo" data-act="logo" title="Click to set a logo link">${c.logo
@@ -1281,6 +1286,7 @@ if (typeof document !== 'undefined') (function page() {
       if (url !== null) setChanOv(c, { logo: url.trim() || undefined });
     }
     if (el.dataset.act === 'match') openMatch(c);
+    if (el.dataset.act === 'copy') setChanOv(c, { copy: el.dataset.copy });
   });
   function autoReason(c) { return c.excluded && c.excluded !== 'hidden' ? c.excluded : ''; }
 

@@ -5,7 +5,7 @@
 
 // ---------------------------------------------------------------- constants
 const IPTV_ORG = 'https://iptv-org.github.io/api/';
-const CATEGORIES = ['Main Channels', 'Entertainment', 'Movies', 'Sports', 'News', 'Documentary',
+const CATEGORIES = ['Main Channels', 'Entertainment', 'Movies', 'Sports', 'News', 'Documentary', '24/7 & Series',
   'Kids', 'Music', 'Lifestyle', 'Religious', 'Shopping', 'Other', 'Regional', '+1 Channels', 'Adult'];
 const COUNTRY_ALIASES = { GB: 'UK', ENG: 'UK', USA: 'US', CAN: 'CA', GER: 'DE', DEU: 'DE', FRA: 'FR', ESP: 'ES',
   ITA: 'IT', POR: 'PT', NED: 'NL', POL: 'PL', TUR: 'TR', IRL: 'IE', AUS: 'AU', NZL: 'NZ', IND: 'IN', SWE: 'SE',
@@ -105,6 +105,8 @@ function countryFromText(text, resolve) {
   return null;
 }
 const SPORT_WORDS_RE = /tennis|\batp\b|\bwta\b|wimbledon|roland\s*garros|french\s*open|australian\s*open|\bus\s*open\b|davis\s*cup|\bppv\b|\bncaa[fbm]?\b|\bnascar\b|\bmls\b|\bmma\b|\bevents?\b|fixtures|\bmatch(?:es)?\b|\bvs\.?\b|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bwwe\b|football|soccer|premier\s*league|champions\s*league|\bf1\b|formula\s*1|motogp|golf|cricket|rugby|boxing|darts|snooker|racing|\bsports?\b/i;
+const SERIES_RE = /24\s*\/\s*7|\b24-7\b|\b247\b|\bseries\b|box\s*sets?|\bvod\b|\breplays?\b|\bmarathon\b|\bseasons?\s*\d|\bs\d{1,2}\s*e\d|\bepisodes?\b|i\s*player|apple\s*tv|netflix|prime\s*video|amazon\s*prime|disney\s*(?:\+|plus)|paramount\s*(?:\+|plus)|hbo\s*max|\bnow\s*tv\b|originals?\b|cinemania|movies?\s*network|\bbinge\b|\bsky\s*store\b/i;
+const SERIES_EXCEPTIONS = /sky\s*replay|\bw\s*series\b/gi; // real channels whose names look like series feeds
 const DOC_BRANDS_RE = /discovery|\bhistory\b|nat\s*geo|national\s*geographic|animal\s*planet|smithsonian|\bscience\b|documentar|\bdocs?\b|\beden\b|curiosity|love\s*nature|\bblaze\b|\bpbs america\b|\bquest\b(?!\s*red)/i;
 function categoryFromGroup(group) {
   const g = (group || '').toLowerCase();
@@ -590,6 +592,8 @@ function buildChannels(entries, cat, overrides, opts) {
     if (!catName) catName = 'Other';
     // documentary brands the catalogue files under Entertainment (popular-only countries regroup them anyway)
     if ((catName === 'Entertainment' || catName === 'Other') && DOC_BRANDS_RE.test(name)) catName = 'Documentary';
+    // 24/7 show loops, iPlayer / Apple TV+ / Netflix feeds, box sets: not real channels
+    if (ch.rank === 9999 && ch.variants.some(v => SERIES_RE.test(`${v.name} | ${v.group}`.replace(SERIES_EXCEPTIONS, '')))) catName = '24/7 & Series';
     ch.isRegional = !!(m && m.feed) || groupCat === 'Regional';
     ch.mainKey = m && (m.feed || ch.timeshift) ? `${ch.cc}|${m.ch.id}` : null;
     ch.autoCat = catName;
@@ -619,6 +623,7 @@ function buildChannels(entries, cat, overrides, opts) {
     else if (opts.noLifestyle && ch.cat === 'Lifestyle' && !curatedCcs.has(ch.cc)) reason = 'lifestyle';
     else if (opts.noDocumentary && ch.cat === 'Documentary' && !curatedCcs.has(ch.cc)) reason = 'documentary';
     else if (opts.noTimeshift && ch.timeshift && !curatedCcs.has(ch.cc)) reason = '+1';
+    else if (opts.noSeries && ch.cat === '24/7 & Series' && !curatedCcs.has(ch.cc)) reason = '24/7 & series';
     else if (opts.noRegional && ch.isRegional && !regionalKeep.has(ch.cc) && !curatedCcs.has(ch.cc)) reason = 'regional';
     else if (userWords(ch)) reason = 'your words';
     else if (ch.status === 'unmatched' && !opts.unmatched) reason = 'unrecognised';
@@ -853,7 +858,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1084,7 +1089,7 @@ if (typeof document !== 'undefined') (function page() {
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
       '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional',
-      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift' };
+      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';

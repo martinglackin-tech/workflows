@@ -539,6 +539,8 @@ function buildChannels(entries, cat, overrides, opts) {
   for (const [cc, list] of Object.entries(CURATED_MAIN)) curatedRank[cc] = new Map(list.map((n, i) => [norm(n), i]));
 
   let channels = [...map.values()];
+  const copyPrefs = String(opts.copyPrefs || '').split('\n').map(l => l.split(':')).filter(p => p.length === 2 && p[1].trim())
+    .map(([n, w]) => ({ key: norm(n), word: w.trim().toLowerCase() }));
   // Logo for a channel. Order: a file you put in the logos folder, then (by the Logos setting) your provider's,
   // the transparent tv-logos collection, the catalogue. Dead provider links (opts.brokenLogos) are skipped.
   const myLogo = names => {
@@ -570,6 +572,12 @@ function buildChannels(entries, cat, overrides, opts) {
     const ov = ovChan[ch.key] || {};
     ch.ov = ov;
     ch.variants.sort((a, b) => variantScore(a, order) - variantScore(b, order));
+    // "Preferred copies" setting: "HGTV: West" puts the copy whose provider name contains "West" first
+    const pref = copyPrefs.find(p => [ch.match && ch.match.ch.name, ...ch.variants.map(v => v.clean)].some(n => n && norm(n) === p.key));
+    if (pref) {
+      const i = ch.variants.findIndex(v => v.name.toLowerCase().includes(pref.word));
+      if (i > 0) ch.variants.unshift(ch.variants.splice(i, 1)[0]);
+    }
     // a copy you picked yourself ("Use this copy") always comes first
     if (ov.copy) {
       const i = ch.variants.findIndex(v => v.name === ov.copy);
@@ -878,7 +886,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, epgFill: true, epgPreferFree: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, copyPrefs: 'HGTV: West', epgFill: true, epgPreferFree: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1112,6 +1120,8 @@ if (typeof document !== 'undefined') (function page() {
       '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo', '#opt-epgfill': 'epgFill', '#opt-epgfree': 'epgPreferFree' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
+    $('#opt-copyprefs').value = S.opts.copyPrefs || '';
+    $('#opt-copyprefs').addEventListener('change', e => { S.opts.copyPrefs = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
     $('#opt-keep').addEventListener('change', e => { S.opts.keepText = e.target.value; saveSettings(); rebuild(); });
     $('#opt-logotarget').value = S.opts.logoTarget || 'computer';

@@ -104,7 +104,7 @@ function countryFromText(text, resolve) {
   }
   return null;
 }
-const SPORT_WORDS_RE = /tennis|\batp\b|\bwta\b|wimbledon|roland\s*garros|french\s*open|australian\s*open|\bus\s*open\b|davis\s*cup|\bppv\b|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bwwe\b|football|soccer|premier\s*league|champions\s*league|\bf1\b|formula\s*1|motogp|golf|cricket|rugby|boxing|darts|snooker|racing|\bsports?\b/i;
+const SPORT_WORDS_RE = /tennis|\batp\b|\bwta\b|wimbledon|roland\s*garros|french\s*open|australian\s*open|\bus\s*open\b|davis\s*cup|\bppv\b|\bncaa[fbm]?\b|\bnascar\b|\bmls\b|\bmma\b|\bevents?\b|fixtures|\bmatch(?:es)?\b|\bvs\.?\b|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bwwe\b|football|soccer|premier\s*league|champions\s*league|\bf1\b|formula\s*1|motogp|golf|cricket|rugby|boxing|darts|snooker|racing|\bsports?\b/i;
 function categoryFromGroup(group) {
   const g = (group || '').toLowerCase();
   if (/adult|xxx|18\+|porn/.test(g)) return 'Adult';
@@ -449,7 +449,7 @@ function normaliseServer(s) {
 const ENGLISH_CCS = new Set(['UK', 'US', 'IE', 'CA', 'AU', 'NZ']);
 const NON_ENGLISH_RE = /\b(?:hindi|punjabi|urdu|tamil|telugu|bangla|bengali|gujarati|malayalam|marathi|kannada|desi|asian|arabic|arab|polish|polska|turkish|turk|kurdish|persian|farsi|somali|french|fran[cç]ais|german|deutsch|spanish|espa[nñ]ol|latino|portuguese|portugu[eê]s|italian|italiano|russian|romanian|albanian|shqip|greek|chinese|mandarin|cantonese|filipino|tagalog|vietnamese|korean|japanese|thai|nepali|sinhala|pashto|afghan|bosnian|croatian|serbian|ex-?yu|balkan|hebrew|swahili|amharic|tigrinya|yoruba|lithuanian|latvian|bulgarian|hungarian|czech|slovak|dutch|nederlands|swedish|norwegian|danish|finnish)\b/i;
 const ENGLISH_RE = /\benglish\b|\beng\b/i;
-const TRUE_CRIME_RE = /\bcrime\b|investigation|\bid\b(?:\s*x?tra)?$|^id\b|real\s*crime|\bmurders?\b|cbs\s*reality|\bforensic/i;
+const TRUE_CRIME_RE = /\bcrime\b|\bdateline\b|investigation|\bid\b(?:\s*x?tra)?$|^id\b|real\s*crime|\bmurders?\b|cbs\s*reality|\bforensic/i;
 function isEnglishChannel(ch) {
   const m = ch.match;
   const text = ch.variants.map(v => `${v.name} ${v.group}`).join(' ');
@@ -674,12 +674,14 @@ function curatedScore(entry, ch) {
     if (k === e.key) s = 0;
     else if (e.key && k.startsWith(e.key)) {
       const rest = k.slice(e.key.length);
-      if (e.wild) s = 2 + (PREFERRED_LOCAL.test(rest) ? 0 : 1) + rest.length / 100;
+      if (e.wild && /^(news|sports?)/.test(rest)) s = null; // "NBC*" means NBC stations, not NBC News / NBC Sports
+      else if (e.wild) s = 2 + (PREFERRED_LOCAL.test(rest) ? 0 : 1) + rest.length / 100;
       else if (OK_SUFFIX.test(rest)) s = 1 + (/west|pacific/.test(rest) ? 0.5 : 0);
     }
     // looser: the list name appears as whole words anywhere ("(EAST) CNN", "WABC ABC 7 New York")
     if (s === null && e.words.length) {
       const words = tokens(n);
+      if (words.length > e.words.length + (e.wild ? 5 : 3)) continue; // "NCAAF 014: Ole Miss at Oklahoma … ABC" is not ABC
       for (let i = 0; i + e.words.length <= words.length; i++) {
         if (e.words.every((w, j) => words[i + j] === w)) {
           s = 4 + (words.length - e.words.length) / 10 + (PREFERRED_LOCAL.test(norm(n)) ? 0 : 0.5);

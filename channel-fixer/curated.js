@@ -15,16 +15,18 @@
     US: {
       'Main Channels': ['ABC*', 'CBS*', 'NBC*', 'FOX*', 'PBS*', 'The CW*', 'ION*'],
       'News': ['CNN', 'Fox News', 'MSNBC | MS NOW', 'CNBC', 'NewsNation', 'Fox Business', 'HLN', 'Bloomberg TV',
-        'CBS News', 'ABC News Live', 'NBC News Now', 'Newsmax', 'The Weather Channel', 'C-SPAN', 'BBC News'],
+        'CBS News', 'ABC News Live', 'NBC News Now', 'TODAY All Day', 'NBC News*', 'NBCLX | NBC LX', 'Newsmax', 'The Weather Channel', 'C-SPAN', 'BBC News'],
       'Entertainment': ['TNT', 'TBS', 'USA Network', 'FX', 'AMC', 'A&E', 'HGTV', 'TLC', 'Food Network', 'Discovery Channel | Discovery',
         'History', 'Bravo', 'E!', 'Comedy Central', 'Paramount Network', 'Lifetime', 'Hallmark Channel', 'Freeform',
         'Syfy', 'FXX', 'BBC America', 'National Geographic', 'Nat Geo Wild', 'Animal Planet', 'Travel Channel',
         'Smithsonian Channel', 'Science Channel', 'Magnolia Network', 'OWN', 'WE tv', 'BET', 'VH1', 'MTV', 'CMT',
         'TV Land', 'truTV', 'Game Show Network', 'Cooking Channel', 'Reelz', 'Motor Trend', 'Destination America',
-        'Hallmark Family', 'Ovation', 'Pop', 'Nick at Nite', 'Adult Swim'],
+        'Hallmark Family | Hallmark Drama', 'Ovation', 'Pop', 'Nick at Nite', 'Adult Swim',
+        // streaming channels some providers carry (Peacock, Pluto…)
+        'SNL Vault', 'Fallon Tonight', 'LOL Network', 'This Old House', 'Rotten Tomatoes'],
       'Movies': ['HBO', 'HBO 2', 'HBO Signature', 'HBO Comedy', 'HBO Family', 'HBO Zone', 'HBO Hits', 'HBO Drama',
         'Showtime', 'Showtime 2', 'Starz', 'Starz Edge', 'Starz Comedy', 'Starz Encore', 'Cinemax', 'MoreMax',
-        'ActionMax', 'MGM+', 'TCM | Turner Classic Movies', 'FXM | FX Movie Channel', 'Sundance TV', 'IFC', 'Hallmark Movies & Mysteries',
+        'ActionMax', 'MGM+', 'TCM | Turner Classic Movies', 'FXM | FX Movie Channel', 'Sundance TV', 'IFC', 'Hallmark Movies & Mysteries | Hallmark Movies & Mystery',
         'Lifetime Movie Network | LMN', 'Paramount+ with Showtime', 'Flix', 'Sony Movie Channel', 'The Movie Channel'],
     },
     CA: {

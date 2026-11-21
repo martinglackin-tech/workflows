@@ -177,7 +177,9 @@ EPG_ALIASES = {"hgtv": "homeandgardentelevision", "e": "eentertainmenttelevision
                "abcnews": "abcnewslive", "wgn": "wgndt", "travelchannel": "thetravelchannel", "travel": "thetravel",
                "mtv": "mtvmusictelevision", "skycinemaselectfeelgood": "skycinemaselect", "skycinemagreats": "skygreats",
                "talktv": "talkradiotalktv", "virginfour": "virginmediafour", "cnbceurope": "cnbc",
-               "rteone": "rte1", "kisstv": "kiss", "bbcone": "bbconelon"}
+               "rteone": "rte1", "kisstv": "kiss", "bbcone": "bbconelon",
+               # GREAT! xmas is a seasonal takeover of GREAT! romance's slot
+               "greatxmas": "greatromance", "greatchristmas": "greatromance"}
 _STYLE = re.compile(r"\b(hd|uhd|fhd|4k|sd|us|usa|uk|east|eastern|\(?pacific\)?|\(?west\)?|\(us\)|feed|national)\b", re.I)
 
 

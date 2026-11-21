@@ -5,7 +5,7 @@
 
 // ---------------------------------------------------------------- constants
 const IPTV_ORG = 'https://iptv-org.github.io/api/';
-const CATEGORIES = ['Main Channels', 'Entertainment', 'Movies', 'Sports', 'News', 'Documentary', '24/7 & Series',
+const CATEGORIES = ['Main Channels', 'Entertainment', 'Sky Movies', 'Movies', 'Sports', 'News', 'Documentary', '24/7 & Series',
   'Kids', 'Music', 'Lifestyle', 'Religious', 'Shopping', 'Other', 'Regional', '+1 Channels', 'Adult'];
 const COUNTRY_ALIASES = { GB: 'UK', ENG: 'UK', USA: 'US', CAN: 'CA', GER: 'DE', DEU: 'DE', FRA: 'FR', ESP: 'ES',
   ITA: 'IT', POR: 'PT', NED: 'NL', POL: 'PL', TUR: 'TR', IRL: 'IE', AUS: 'AU', NZL: 'NZ', IND: 'IN', SWE: 'SE',
@@ -606,6 +606,8 @@ function buildChannels(entries, cat, overrides, opts) {
     if (!catName) catName = 'Other';
     // documentary brands the catalogue files under Entertainment (popular-only countries regroup them anyway)
     if ((catName === 'Entertainment' || catName === 'Other') && DOC_BRANDS_RE.test(name)) catName = 'Documentary';
+    // Sky Cinema channels get their own group, above Movies
+    if (/^sky\s*cinema\b/i.test(name) && catName !== 'Adult') catName = 'Sky Movies';
     // 24/7 show loops, iPlayer / Apple TV+ / Netflix feeds, box sets: not real channels
     if (ch.rank === 9999 && ch.variants.some(v => SERIES_RE.test(`${v.name} | ${v.group}`.replace(SERIES_EXCEPTIONS, '')))) catName = '24/7 & Series';
     ch.isRegional = !!(m && m.feed) || groupCat === 'Regional';

@@ -241,11 +241,11 @@ def _epg_summary(path):
     return chans, live
 
 
-def epg_fill(provider_epg, channels):
+def epg_fill(provider_epg, channels, prefer_free=False):
     """Find guide listings for channels the provider's guide has nothing for.
     channels: [{key, epgId, cc, names}] -> {"map": {key: {"id", "url"}}, "sources": [...], counts}"""
     provider_live = set()
-    if provider_epg:
+    if provider_epg and not prefer_free:
         p = _fetch_epg(provider_epg)
         if p:
             provider_live = _epg_summary(p)[1]
@@ -403,7 +403,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/epgfill":
                 req = json.loads(self.read_body(20 * 1024 * 1024))
-                return self.send_json(200, epg_fill(req.get("epg") or "", req.get("channels") or []))
+                return self.send_json(200, epg_fill(req.get("epg") or "", req.get("channels") or [], bool(req.get("preferFree"))))
             if path == "/api/logozip":
                 files = json.loads(self.read_body(5 * 1024 * 1024)).get("files") or {}
                 return self.send_bytes(200, logo_zip(files), "application/zip",

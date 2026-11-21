@@ -827,8 +827,8 @@ function countryLabelShort(cc) { return cc === 'ZZ' ? 'Other' : cc; }
 
 function buildM3U(channels, ctx) {
   const lines = [];
-  const guides = [ctx.epg, ...(ctx.extraEpg || [])].filter(Boolean).join(',');
-  lines.push(guides ? `#EXTM3U url-tvg="${attr(guides)}" x-tvg-url="${attr(guides)}"` : '#EXTM3U');
+  // one guide address only: TiviMate doesn't read a comma-separated list. Extra guides are added in TiviMate.
+  lines.push(ctx.epg ? `#EXTM3U url-tvg="${attr(ctx.epg)}" x-tvg-url="${attr(ctx.epg)}"` : '#EXTM3U');
   const emit = (c, v, name, group, chno) => {
     const url = ctx.streamUrl(v);
     let extra = '';
@@ -873,7 +873,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, epgFill: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, epgFill: true, epgPreferFree: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1104,7 +1104,7 @@ if (typeof document !== 'undefined') (function page() {
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
       '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional',
-      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo', '#opt-epgfill': 'epgFill' };
+      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo', '#opt-epgfill': 'epgFill', '#opt-epgfree': 'epgPreferFree' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
@@ -1490,7 +1490,7 @@ if (typeof document !== 'undefined') (function page() {
     setStatus(exportStatus, 'Checking the TV guide… (the first time downloads the guides, which can take a minute or two)');
     try {
       const r = await fetch('/api/epgfill', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ epg: S.epg, channels: [...seen.values()] }) });
+        body: JSON.stringify({ epg: S.epg, channels: [...seen.values()], preferFree: !!S.opts.epgPreferFree }) });
       if (r.ok) { const res = await r.json(); S.epgMap = res.map; S.epgSources = res.sources; S.epgStats = res; }
     } catch (_) { /* keep the provider's guide only */ }
     renderGuideNote();
@@ -1499,8 +1499,11 @@ if (typeof document !== 'undefined') (function page() {
     const box = $('#epg-extra');
     if (!S.epgStats || !S.opts.epgFill) { box.innerHTML = ''; return; }
     const st = S.epgStats;
-    box.innerHTML = `<p><b>TV guide:</b> ${st.missing} of ${st.checked} channels had no listings in your provider's guide;
-      ${st.filled} were found in free guides.${st.missing - st.filled > 0 ? ` ${st.missing - st.filled} have no guide anywhere I can find.` : ''}</p>`
+    box.innerHTML = (S.opts.epgPreferFree
+      ? `<p><b>TV guide:</b> ${st.filled} of ${st.checked} channels use the free guides; the other ${st.checked - st.filled} use your provider's guide.</p>`
+      : `<p><b>TV guide:</b> ${st.missing} of ${st.checked} channels had no listings in your provider's guide;
+      ${st.filled} were found in free guides.${st.missing - st.filled > 0 ? ` ${st.missing - st.filled} have no guide anywhere I can find.` : ''}</p>`)
+      + (S.epg ? `<p>In TiviMate (Settings → EPG) you need your provider's guide <code>${escapeHtml(S.epg.replace(/password=[^&]+/, 'password=…'))}</code> (see "In TiviMate" below)</p>` : '')
       + (S.epgSources.length ? `<p>Add ${S.epgSources.length > 1 ? 'these guides' : 'this guide'} in TiviMate
       (Settings → EPG → Add EPG source), as well as your provider's:</p><ul>${S.epgSources.map(u => `<li><code>${escapeHtml(u)}</code></li>`).join('')}</ul>` : '');
   }

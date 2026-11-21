@@ -134,6 +134,13 @@
       <label class="check"><input type="checkbox" id="opt-backups"> Keep the other copies in a "Backups" group</label>
       <label class="check"><input type="checkbox" id="opt-adult" checked> Hide adult channels</label>
       <label class="check"><input type="checkbox" id="opt-servelogos" checked> Serve logos from this computer (they're saved here once, so TiviMate always finds them)</label>
+      <label>Where TiviMate gets the logos
+        <select id="opt-logotarget">
+          <option value="computer">From this computer (needs it switched on)</option>
+          <option value="tv">From a folder on the TV (copy them over once)</option>
+        </select>
+      </label>
+      <label id="tvpath-wrap">Folder on the TV <input id="opt-tvpath" placeholder="/storage/emulated/0/Logos"></label>
     </div>
   </section>
 
@@ -174,6 +181,7 @@
     <div id="nologo"></div>
     <div class="export-btns">
       <button class="btn primary" id="btn-publish">Share all on my home network</button>
+      <button class="btn" id="btn-logozip">Download logos for the TV (.zip)</button>
       <button class="btn" id="btn-overrides-export">Back up my fixes</button>
       <label class="btn">Restore fixes<input type="file" id="overrides-import" accept=".json" hidden></label>
     </div>

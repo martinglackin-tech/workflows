@@ -871,7 +871,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1107,6 +1107,12 @@ if (typeof document !== 'undefined') (function page() {
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
     $('#opt-keep').addEventListener('change', e => { S.opts.keepText = e.target.value; saveSettings(); rebuild(); });
+    $('#opt-logotarget').value = S.opts.logoTarget || 'computer';
+    $('#opt-tvpath').value = S.opts.tvLogoPath || '/storage/emulated/0/Logos';
+    const showTv = () => { $('#tvpath-wrap').classList.toggle('hidden', S.opts.logoTarget !== 'tv'); $('#btn-logozip').classList.toggle('hidden', S.opts.logoTarget !== 'tv'); };
+    showTv();
+    $('#opt-logotarget').addEventListener('change', e => { S.opts.logoTarget = e.target.value; saveSettings(); showTv(); });
+    $('#opt-tvpath').addEventListener('change', e => { S.opts.tvLogoPath = e.target.value.trim(); saveSettings(); });
     $('#opt-max').value = S.opts.maxPerCountry || 120;
     $('#opt-max').addEventListener('change', e => { S.opts.maxPerCountry = Math.max(1, Number(e.target.value) || 120); saveSettings(); rebuild(); });
     $('#curate-box').addEventListener('change', e => {
@@ -1416,13 +1422,17 @@ if (typeof document !== 'undefined') (function page() {
   }
   // Before sharing or downloading: work out the logo links. With "serve logos from this computer", every logo is
   // downloaded once by the helper and the playlist points at this computer; your own logos always come from here.
+  // Before sharing or downloading: work out the logo links.
+  //  'computer': the helper saves each logo once and the playlist points at this computer (needs --lan).
+  //  'tv': every logo becomes a file in a folder on the TV (file:///…); "Download logos for the TV" gives the files.
   async function prepareLogos() {
-    S.resolveLogo = null;
+    S.resolveLogo = null; S.tvLogoFiles = {};
     if (!S.helper) return;
+    const tv = S.opts.logoTarget === 'tv';
     let base = null;
     try { const info = await getJson('/api/info'); if (info.lan && info.ips.length) base = `http://${info.ips[0]}:${info.port}`; } catch (_) { /* no helper */ }
     let cached = {};
-    if (base && S.opts.serveLogos) {
+    if ((base && S.opts.serveLogos) || tv) {
       const urls = [...new Set(S.playlists.flatMap(l => l.channels.filter(c => c.out && /^https?:/.test(c.logo)).map(c => c.logo)))];
       for (let i = 0; i < urls.length; i += 300) {
         setStatus(exportStatus, `Saving logos on this computer… ${Math.min(i + 300, urls.length)}/${urls.length}`);
@@ -1433,6 +1443,28 @@ if (typeof document !== 'undefined') (function page() {
         } catch (_) { break; }
       }
     }
+    if (tv) {
+      const folder = (S.opts.tvLogoPath || '/storage/emulated/0/Logos').replace(/\/+$/, '');
+      const used = new Set();
+      const fileFor = (src, label) => { // a simple, unique file name for the TV: "bbc-one.png"
+        for (const [n, s] of Object.entries(S.tvLogoFiles)) if (s === src) return n;
+        const ext = (src.match(/\.(png|jpe?g|webp|gif|svg)$/i) || ['', 'png'])[1].toLowerCase();
+        let stem = String(label).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+          .replace(/&/g, ' and ').replace(/\+/g, ' plus ').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'logo';
+        let name = `${stem}.${ext}`, i = 2;
+        while (used.has(name)) name = `${stem}-${i++}.${ext}`;
+        used.add(name); S.tvLogoFiles[name] = src; return name;
+      };
+      const local = u => (u.startsWith('/') ? u : cached[u] ? `/logo-cache/${cached[u]}` : null);
+      S.resolveLogo = u => {
+        if (!u) return '';
+        const src = local(u);
+        if (!src) return u; // couldn't save it: keep the web link
+        const label = decodeURIComponent(src.split('/').pop()).replace(/\.[a-z0-9]+$/i, '');
+        return `file://${folder}/${fileFor(src, label)}`;
+      };
+      return;
+    }
     S.resolveLogo = u => {
       if (!u) return '';
       if (u.startsWith('/')) return base ? base + u : '';
@@ -1440,6 +1472,20 @@ if (typeof document !== 'undefined') (function page() {
       return u;
     };
   }
+  $('#btn-logozip').addEventListener('click', async () => {
+    if (!S.helper) return setStatus(exportStatus, 'This needs the helper (python3 server.py).', 'error');
+    await prepareLogos();
+    for (const l of S.playlists || []) l.text(); // fills S.tvLogoFiles with every logo the playlists use
+    const files = S.tvLogoFiles || {};
+    if (!Object.keys(files).length) return setStatus(exportStatus, 'Choose "A folder on the TV" under Logos first.', 'error');
+    setStatus(exportStatus, `Packing ${Object.keys(files).length} logos…`);
+    const r = await fetch('/api/logozip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }) });
+    if (!r.ok) return setStatus(exportStatus, 'Couldn\'t make the logo file.', 'error');
+    const blob = await r.blob();
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'Logos.zip' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setStatus(exportStatus, `Saved Logos.zip (${Object.keys(files).length} logos). Unzip it and copy the <b>Logos</b> folder to the TV (see below).`, 'ok');
+  });
   const exportStatus = $('#export-status');
   $('#playlists').addEventListener('click', async e => {
     const id = e.target.dataset.dl; if (!id) return;

@@ -154,6 +154,23 @@ def bundle_logos(urls):
         return dict(zip(urls, pool.map(download_logo, urls)))
 
 
+def logo_zip(files):
+    """A zip with a Logos/ folder: {name in zip: '/logos/<file>' or '/logo-cache/<file>'}."""
+    import io
+    import zipfile
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, src in files.items():
+            m = re.fullmatch(r"/(logos|logo-cache)/([^/]+)", str(src))
+            if not m or not re.fullmatch(r"[a-z0-9.-]+", name):
+                continue
+            folder = MY_LOGOS_DIR if m.group(1) == "logos" else LOGO_CACHE_DIR
+            fpath = os.path.join(folder, urllib.parse.unquote(m.group(2)))
+            if os.path.isfile(fpath) and os.path.dirname(os.path.abspath(fpath)) == os.path.abspath(folder):
+                z.write(fpath, "Logos/" + name)
+    return buf.getvalue()
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ChannelFixer/1.0"
 
@@ -243,6 +260,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == "/api/logozip":
+                files = json.loads(self.read_body(5 * 1024 * 1024)).get("files") or {}
+                return self.send_bytes(200, logo_zip(files), "application/zip",
+                                       {"Content-Disposition": 'attachment; filename="Logos.zip"'})
             if path == "/api/logobundle":
                 urls = json.loads(self.read_body(5 * 1024 * 1024)).get("urls") or []
                 return self.send_json(200, bundle_logos([u for u in urls if isinstance(u, str)][:3000]))

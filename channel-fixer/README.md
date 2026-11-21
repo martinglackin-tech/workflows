@@ -21,6 +21,14 @@ Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlis
 - **Your own logos:** put a picture named after the channel (for example `TLC.png`) in the `logos` folder. It wins over everything else. Step 4 lists the channels that still have no logo.
 - **Serve logos from this computer** (on by default): when you share, the helper saves every logo once and the playlists point TiviMate at this computer, so logos keep working even if the original site goes away. This needs `--lan`.
 
+### Logos stored on the TV (no computer needed)
+
+Set **Where TiviMate gets the logos** to **From a folder on the TV**, then click **Download logos for the TV (.zip)**.
+Unzip it and copy the `Logos` folder to the TV's internal storage (USB stick plus a file manager app such as
+X-plore or File Commander), so it ends up at `/storage/emulated/0/Logos`. Share or download the playlists again;
+their logo links now point at that folder (`file:///storage/emulated/0/Logos/…`). TiviMate needs permission to read
+storage (Android TV Settings → Apps → TiviMate → Permissions). Repeat the zip and copy when channels change.
+
 ## Running it
 
 You need Python 3 (free from python.org; it's already on Mac and Linux). No extra packages are needed.

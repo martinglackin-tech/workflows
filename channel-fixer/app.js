@@ -186,8 +186,9 @@ function cleanName(raw, cc, resolve) {
   const backup = /\b(?:backup|bkp|alt|alternative|b\/u)\b|\(\s*(?:2|b|alt)\s*\)/i.test(s);
   // timeshift: "E4 +1", "ITV1 (+1)", "Channel 4 Plus 1"
   let timeshift = 0;
-  const ts = s.match(/(?:[\s(]\+\s?(\d{1,2})\)?|\bplus\s?(\d{1,2})\b)(?=\s|$|\))/i);
-  if (ts) { timeshift = Number(ts[1] || ts[2]); s = s.replace(ts[0], ' '); }
+  const ts = s.match(/(?:[\s(]\+\s?(\d{1,2})\)?|(?<=[A-Za-z0-9])\+(1|2)|\bplus\s?(\d{1,2})\b)(?=\s|$|\))/i);
+  // ("Dmax+1", "Movies 24+1": no space before the +)
+  if (ts) { timeshift = Number(ts[1] || ts[2] || ts[3]); s = s.replace(ts[0], ' '); }
   s = s.replace(SYMBOL_RE, ' ').replace(JUNK_RE, ' ')
     .replace(/\(\s*(?:2|b|alt)\s*\)/gi, ' ').replace(/\b(?:alt|alternative)\b/gi, ' ')
     .replace(/\(\s*\)|\[\s*\]|\{\s*\}/g, ' ').replace(/\s+/g, ' ').trim()

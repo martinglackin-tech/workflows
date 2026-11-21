@@ -12,3 +12,7 @@ against the channel name shown in Channel Fixer. Transparent PNGs look best in
 TiviMate. Then click "Load channels" again and "Share all on my home network".
 
 These logos are served to TiviMate by the helper, so start it with --lan.
+
+The logos already in this folder are a transparent logo pack made for your UK
+and US playlists (226 channels). Replace any of them with your own file of the
+same name if you prefer a different look.

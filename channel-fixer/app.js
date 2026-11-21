@@ -660,7 +660,7 @@ function tokens(s) {
 }
 function curatedEntries(list) {
   const out = [];
-  for (const [cat, names] of Object.entries(list)) {
+  Object.entries(list).forEach(([cat, names], catIdx) => {
     // "Seven* | Channel 7*": different spellings of one channel; only one is kept
     for (const n of names) {
       const alts = n.split('|').map(x => x.trim()).filter(Boolean).map(x => {
@@ -669,9 +669,10 @@ function curatedEntries(list) {
         const words = tokens(plain);
         return { wild: x.endsWith('*'), key: norm(plain), words: words.length > 1 || norm(plain).length >= 3 ? words : [] };
       });
-      out.push({ cat, alts, rank: out.length });
+      // pos/catIdx: the limit takes the top of every group in turn, so Movies isn't squeezed out by Entertainment
+      out.push({ cat, alts, rank: out.length, pos: names.indexOf(n), catIdx, label: n.split('|')[0].replace(/\*/g, '').trim() });
     }
-  }
+  });
   return out;
 }
 function curatedScore(entry, ch) {
@@ -682,7 +683,11 @@ function curatedScore(entry, ch) {
     if (!n) continue;
     const k = norm(n);
     let s = null;
-    if (k === e.key) s = 0;
+    if (k === e.key) {
+      // "CBS (Atlanta)" is an exact name but the wrong city: let "CBS 2 New York" win
+      const place = norm(ch.variants[0].place || '');
+      s = place && !PREFERRED_LOCAL.test(place) && e.wild ? 2.5 : 0;
+    }
     else if (e.key && k.startsWith(e.key)) {
       const rest = k.slice(e.key.length);
       if (e.wild && /^(news|sports?)/.test(rest)) s = null; // "NBC*" means NBC stations, not NBC News / NBC Sports
@@ -722,18 +727,23 @@ function curate(chs, list, max) {
   }
   // one station per network: "Seven Sydney" and "Channel 7 Melbourne" are the same channel
   const used = new Set();
-  const ranked = [...pick.entries()].sort((a, b) => a[0].rank - b[0].rank).filter(([, { ch }]) => {
+  const ranked = [...pick.entries()].sort((a, b) => (a[0].pos - b[0].pos) || (a[0].catIdx - b[0].catIdx)).filter(([, { ch }]) => {
     const id = ch.match ? ch.match.ch.id + (ch.timeshift ? '+' + ch.timeshift : '') : ch.key;
     if (used.has(id)) return false;
     used.add(id); return true;
   });
-  const chosen = new Map(ranked.map(([e, { ch }], i) => [ch, { e, over: i >= max }]));
+  const chosen = new Map(ranked.map(([e, { ch, s }], i) => [ch, { e, s, over: i >= max }]));
   for (const ch of chs) {
     if (!free(ch)) continue;
     const c = chosen.get(ch);
     if (!c || c.over) { ch.out = false; ch.excluded = c ? 'over the limit' : 'not in popular list'; continue; }
     if (!ch.ov.cat) ch.cat = c.e.cat;
     ch.rank = c.e.rank;
+    // a network picked from local stations ("ABC New York WABC", "Seven Sydney") is just called "ABC" / "Seven"
+    if (c.e.alts[0].wild && !ch.ov.name && c.s > 0) {
+      const base = c.e.label;
+      ch.name = base + (ch.timeshift ? ' +' + ch.timeshift : '');
+    }
     ch.isRegional = false; // "AMC East" is the channel itself here, not a regional extra
     ch.mainKey = null;
     if (ch.match && ch.match.feed && !ch.ov.name) { // and is simply called "AMC"

@@ -318,6 +318,12 @@ function buildCatalog({ channels, logos, feeds, countries }) {
 }
 
 const HOME_PREFERENCE = ['US', 'UK', 'CA', 'AU', 'IE', 'NZ'];
+// "northwest" → "North West", "east" → "East" (built from the matched word, never by slicing the raw name)
+const REGION_LABELS = { northernireland: 'Northern Ireland', ni: 'NI', northwest: 'North West', northeast: 'North East',
+  southwest: 'South West', southeast: 'South East', eastmidlands: 'East Midlands', westmidlands: 'West Midlands',
+  tynetees: 'Tyne Tees', westcountry: 'West Country', channelislands: 'Channel Islands', eastyorkshire: 'East Yorkshire',
+  northeastcumbria: 'North East & Cumbria', channeltelevision: 'Channel Television', utv: 'UTV', stv: 'STV' };
+function regionLabel(key) { return REGION_LABELS[key] || key.charAt(0).toUpperCase() + key.slice(1); }
 function pickBest(list, cc) {
   if (!list || !list.length) return null;
   let best = null, bestScore = -1;
@@ -359,7 +365,7 @@ function matchExact(cat, clean, cc) {
     const region = base.regions.find(r => r.key === rest || rest.startsWith(r.key));
     if (region) return { ch: base, feed: { name: region.name, id: region.id }, how: 'regional' };
     if (REGION_WORDS.includes(rest) && base.regions.length) {
-      return { ch: base, feed: { name: clean.slice(clean.length - Math.max(rest.length, 2)).trim(), id: null }, how: 'regional' };
+      return { ch: base, feed: { name: regionLabel(rest), id: null }, how: 'regional' };
     }
   }
   if (exact) return { ch: exact, feed: null, how: 'exact', foreign: true }; // same name, other country
@@ -730,6 +736,9 @@ function curate(chs, list, max) {
     ch.rank = c.e.rank;
     ch.isRegional = false; // "AMC East" is the channel itself here, not a regional extra
     ch.mainKey = null;
+    if (ch.match && ch.match.feed && !ch.ov.name) { // and is simply called "AMC"
+      ch.name = ch.match.ch.name + (ch.timeshift ? ' +' + ch.timeshift : '');
+    }
   }
 }
 // "Always include": one channel per line, optionally "Name: FHD, HD" to keep those copies as separate channels.

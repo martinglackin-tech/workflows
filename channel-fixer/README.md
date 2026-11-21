@@ -3,7 +3,7 @@
 Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlist for TiviMate:
 
 - **Clean names**: `UK: BBC ONE FHD ᴿᴬᵂ` becomes **BBC One**. It removes country prefixes, quality tags, stars, emoji and separator rows like `##### UK BACKUP #####`.
-- **Proper logos and categories** from the free [iptv-org](https://github.com/iptv-org/database) catalogue (about 32,000 channels with logos, regional versions and categories).
+- **Proper logos and categories**. Logos come first from [tv-logo/tv-logos](https://github.com/tv-logo/tv-logos) (about 10,700 high-quality logos on GitHub). Channel details come from the free [iptv-org](https://github.com/iptv-org/database) catalogue (about 32,000 channels with categories and regional versions). Most iptv-org logos are hosted on Imgur, which blocks UK visitors, so Imgur links are only used as a last resort. The **"Logo on Imgur"** filter shows any that are left.
 - **Merged duplicates**: SD / HD / FHD / 4K copies become one channel, using the quality you prefer. **Test streams** checks which copy actually plays and switches to it.
 - **TV-style order**: main channels first (BBC One, BBC Two, ITV1, Channel 4… for the UK), then Entertainment, Movies, Sports, News, Documentary, Kids and so on. Channel numbers are set.
 - **Regional and +1 versions** (BBC One London, ITV1 Granada, E4 +1) go in their own group, straight after the main channel, or are hidden.

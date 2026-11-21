@@ -120,7 +120,7 @@ function categoryFromCatalog(cats, nsfw) {
 }
 
 // ---------------------------------------------------------------- name cleaning
-const JUNK_RE = /\b(?:f?hd|uhd|sd|hdr|hdr10|4k|8k|hevc|h\.?26[45]|x26[45]|\d{3,4}[pi]|\d{2,3}\s?fps|raw|vip|backup|bkp|multi(?:sub|audio)?|lq|hq|(?:low|high|medium)\s?quality|geo(?:blocked)?)\b/gi;
+const JUNK_RE = /\b(?:f?hd|uhd|sd|hdr|hdr10|4k|8k|hevc|h\.?26[45]|x26[45]|\d{3,4}[pi]|\d{2,3}\s?fps|raw|vip|backup|bkp|multi(?:sub|audio)?|lq|hq|(?:low|high|medium)\s?quality|geo-?blocked)\b/gi;
 const SYMBOL_RE = /[★☆✦✧✪✯⭐●◉○◆◇♦■□▪▫►▶➤➜➔»«|•·⋆✓✔⚽🔴🟢🎬⚡❤♥️]|\p{Extended_Pictographic}/gu;
 
 function qualityOf(s) {
@@ -163,6 +163,65 @@ function cleanName(raw, cc, resolve) {
   return { clean: s, nameCc, quality, hevc, backup, timeshift };
 }
 
+// ---------------------------------------------------------------- logos
+// Imgur has blocked UK visitors since 2025, and most iptv-org logos live there.
+function isBlockedLogo(url) { return /(^|\/\/|\.)imgur\.com\//i.test(url || ''); }
+const TVLOGOS_RAW = 'https://raw.githubusercontent.com/tv-logo/tv-logos/main/';
+const TVLOGOS_EXTRA_FOLDERS = { turkey: ['TR'], nordic: ['NO', 'DK', 'SE', 'FI', 'IS'], caribbean: ['CARIB'],
+  'world-africa': ['AFR'], 'world-latin-america': ['LATAM'], 'world-middle-east': ['ARAB'],
+  serbia: ['EXYU'], croatia: ['EXYU'], slovenia: ['EXYU'] };
+const TVLOGOS_GLOBAL = ['international', 'world-europe', 'world-asia'];
+function slugify(s) {
+  return String(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+const LOGO_ALIASES = { more4: '4more', more4plus1: '4moreplus', cbbc: 'bbccbbc', cbeebies: 'bbccbeebies' };
+function logoKeys(k) {
+  const out = [k];
+  if (LOGO_ALIASES[k]) out.push(LOGO_ALIASES[k]);
+  const t = k.replace(/(tv|channel|television|hd)$/, '');
+  if (t !== k && t.length >= 2) out.push(t);
+  return out;
+}
+// paths: ["countries/united-kingdom/bbc-one-uk.png", ...]
+function buildLogoIndex(paths, countries) {
+  const folderToCc = {};
+  for (const c of countries || []) (folderToCc[slugify(c.name)] ||= []).push(c.code);
+  for (const [f, ccs] of Object.entries(TVLOGOS_EXTRA_FOLDERS)) (folderToCc[f] ||= []).push(...ccs);
+  const byCc = new Map(), global = new Map();
+  for (const path of paths) {
+    const m = path.match(/^countries\/([^/]+)\/([^/]+)\.png$/i);
+    if (!m || /obsolete/i.test(m[2])) continue;
+    const parts = m[2].toLowerCase().split('-');
+    if (parts.length > 1 && /^[a-z]{2,4}$|^\d+_[a-z]+$/.test(parts[parts.length - 1])) parts.pop(); // country suffix
+    const variant = parts.some(p => ['hz', 'white', 'light', 'dark', 'alt', 'mono', 'black'].includes(p));
+    const clean = parts.filter(p => !['hz', 'white', 'light', 'dark', 'alt', 'mono', 'black'].includes(p));
+    const key = norm(clean.join(' '));
+    const targets = TVLOGOS_GLOBAL.includes(m[1]) ? [global]
+      : (folderToCc[m[1]] || []).map(cc => { if (!byCc.has(cc)) byCc.set(cc, new Map()); return byCc.get(cc); });
+    for (const map of targets) {
+      // plain logos win over "hz"/"white" variants
+      if (!variant) { if (!map.has(key) || map.get(key).variant) map.set(key, { path, variant }); }
+      else if (!map.has(key)) map.set(key, { path, variant });
+      for (const k of logoKeys(key).slice(1)) if (!map.has(k)) map.set(k, { path, variant });
+    }
+  }
+  return { byCc, global };
+}
+function findTvLogo(idx, names, cc, timeshift) {
+  if (!idx) return '';
+  const maps = [idx.byCc.get(cc), idx.global].filter(Boolean);
+  const keys = [];
+  for (const n of names) {
+    if (!n) continue;
+    for (const k of logoKeys(norm(n))) {
+      if (timeshift) keys.push(k + 'plus' + timeshift, k + 'plus');
+      keys.push(k);
+    }
+  }
+  for (const map of maps) for (const k of keys) { const hit = map.get(k); if (hit) return TVLOGOS_RAW + hit.path.split('/').map(encodeURIComponent).join('/'); }
+  return '';
+}
+
 // ---------------------------------------------------------------- catalogue
 function buildCatalog({ channels, logos, feeds, countries }) {
   const byId = new Map();
@@ -183,7 +242,8 @@ function buildCatalog({ channels, logos, feeds, countries }) {
     const c = byId.get(l.channel);
     if (!c || !l.url) continue;
     const fmt = (l.format || '').toUpperCase();
-    const score = (l.in_use ? 50 : 0) + ({ PNG: 20, JPEG: 15, JPG: 15, WEBP: 10, SVG: 0 }[fmt] ?? 5)
+    const score = (l.in_use ? 50 : 0) + (isBlockedLogo(l.url) ? 0 : 60)
+      + ({ PNG: 20, JPEG: 15, JPG: 15, WEBP: 10, SVG: 0 }[fmt] ?? 5)
       + Math.min(l.width || 0, 1000) / 100;
     if (l.feed) {
       const prev = c.feedLogos[l.feed];
@@ -406,7 +466,13 @@ function buildChannels(entries, cat, overrides, opts) {
     ch.autoName = name;
     ch.name = ov.name || name;
     const feedLogo = m && m.feed && m.feed.id && m.ch.feedLogos[m.feed.id];
-    ch.autoLogo = (feedLogo && feedLogo.url) || (m && m.ch.logo) || ch.variants.map(v => v.logo).find(Boolean) || '';
+    const catalogLogo = (feedLogo && feedLogo.url) || (m && m.ch.logo) || '';
+    const providerLogo = ch.variants.map(v => v.logo).find(Boolean) || '';
+    const tvLogo = findTvLogo(cat.tvLogos, [name.replace(/ \+\d+$/, ''), m && m.feed ? null : m && m.ch.name,
+      ...(m && !m.feed ? m.ch.alt : []), best.clean], ch.cc, ch.timeshift);
+    // regional version with no logo of its own: borrow the main channel's
+    const mainTvLogo = m && m.feed ? findTvLogo(cat.tvLogos, [m.ch.name, ...m.ch.alt], ch.cc, ch.timeshift) : '';
+    ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
     ch.logo = ov.logo || ch.autoLogo;
     ch.epgId = best.epgId || ch.variants.map(v => v.epgId).find(Boolean) || (m ? m.ch.id : '');
     ch.status = !m ? 'unmatched' : m.how;
@@ -513,7 +579,7 @@ function buildM3U(channels, ctx) {
 }
 
 if (typeof module !== 'undefined') {
-  module.exports = { norm, cleanName, countryFromText, makeCountryResolver, buildCatalog, matchExact, matchFuzzy,
+  module.exports = { buildLogoIndex, findTvLogo, isBlockedLogo, norm, cleanName, countryFromText, makeCountryResolver, buildCatalog, matchExact, matchFuzzy,
     parseM3U, prepareEntries, buildChannels, buildM3U, parseXtreamLink, normaliseServer, isLiveUrl };
 }
 
@@ -585,6 +651,16 @@ if (typeof document !== 'undefined') (function page() {
   }
 
   // ---------- catalogue
+  async function loadTvLogoPaths() {
+    try {
+      if (S.helper) return await getJson('/api/tvlogos');
+      const tree = await getJson('https://api.github.com/repos/tv-logo/tv-logos/git/trees/main?recursive=1');
+      return tree.tree.map(t => t.path).filter(p => p.startsWith('countries/') && p.endsWith('.png'));
+    } catch (e) {
+      console.warn('tv-logos unavailable, using catalogue logos only', e);
+      return null;
+    }
+  }
   function loadCatalog() {
     if (!S.catPromise) {
       const base = S.helper ? '/api/iptv/' : IPTV_ORG;
@@ -592,7 +668,10 @@ if (typeof document !== 'undefined') (function page() {
         .then(([channels, logos, feeds, countries]) => {
           S.cat = buildCatalog({ channels, logos, feeds, countries });
           S.resolve = makeCountryResolver(countries.map(c => c.code));
-          return S.cat;
+          return loadTvLogoPaths().then(paths => {
+            if (paths) S.cat.tvLogos = buildLogoIndex(paths, countries);
+            return S.cat;
+          });
         })
         .catch(e => { S.catPromise = null; throw new Error('Channel catalogue: ' + e.message); });
     }
@@ -779,6 +858,7 @@ if (typeof document !== 'undefined') (function page() {
         case 'fuzzy': return c.status === 'fuzzy';
         case 'merged': return c.variants.length > 1;
         case 'nologo': return !c.logo;
+        case 'imgur': return isBlockedLogo(c.logo);
         case 'hidden': return c.ov.hidden === true;
         default: return true;
       }

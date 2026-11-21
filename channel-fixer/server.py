@@ -29,6 +29,8 @@ STATIC = {
 }
 IPTV_ORG_API = "https://iptv-org.github.io/api/"
 IPTV_FILES = {"channels", "logos", "feeds", "countries"}
+TVLOGOS_TREE = "https://api.github.com/repos/tv-logo/tv-logos/git/trees/main?recursive=1"
+TVLOGOS_MAX_AGE = 7 * 24 * 3600
 CATALOG_MAX_AGE = 24 * 3600
 USER_AGENT = "Mozilla/5.0 (Linux; Android 12) ChannelFixer/1.0"
 XTREAM_ACTIONS = {"get_live_categories", "get_live_streams", None}
@@ -127,6 +129,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.m3u()
             if path.startswith("/api/iptv/"):
                 return self.iptv(path[len("/api/iptv/"):])
+            if path == "/api/tvlogos":
+                return self.tvlogos()
             if path == "/api/probe":
                 return self.probe()
             if path == "/api/overrides":
@@ -223,6 +227,23 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:  # noqa: BLE001
                 if not os.path.exists(cached):
                     return self.send_json(502, {"error": f"Couldn't download the channel catalogue: {e}"})
+        with open(cached, "rb") as fh:
+            return self.send_bytes(200, fh.read(), "application/json")
+
+    def tvlogos(self):
+        """File list of the tv-logo/tv-logos repo (one GitHub request a week)."""
+        cached = os.path.join(DATA_DIR, "tvlogos.json")
+        fresh = os.path.exists(cached) and time.time() - os.path.getmtime(cached) < TVLOGOS_MAX_AGE
+        if not fresh:
+            try:
+                _, _, body = fetch(TVLOGOS_TREE, timeout=60)
+                tree = json.loads(body)["tree"]
+                paths = [t["path"] for t in tree
+                         if t["path"].startswith("countries/") and t["path"].lower().endswith(".png")]
+                self.write_data("tvlogos.json", json.dumps(paths).encode())
+            except Exception as e:  # noqa: BLE001
+                if not os.path.exists(cached):
+                    return self.send_json(502, {"error": f"Couldn't get the logo list: {e}"})
         with open(cached, "rb") as fh:
             return self.send_bytes(200, fh.read(), "application/json")
 

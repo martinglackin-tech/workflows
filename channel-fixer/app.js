@@ -603,7 +603,7 @@ function buildChannels(entries, cat, overrides, opts) {
     ch.out = !reason;
   }
   for (const cc of opts.curate || []) {
-    if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 100);
+    if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 120);
   }
   // Placement of regional / +1 versions
   for (const ch of channels) {
@@ -823,7 +823,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider', englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: 'UK', curate: ['US', 'CA', 'AU'], maxPerCountry: 100,
+      regionalKeep: 'UK', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -846,6 +846,8 @@ if (typeof document !== 'undefined') (function page() {
   // ---------- start-up
   async function init() {
     S.opts = { ...S.opts, ...store.get('cf-settings', {}) };
+    // the limit went from 100 to 120; move saved settings over once (a value you chose yourself is kept after that)
+    if (!S.opts.limit120) { if (S.opts.maxPerCountry === 100) S.opts.maxPerCountry = 120; S.opts.limit120 = true; }
     try {
       S.info = await getJson('/api/info');
       S.helper = true;
@@ -1051,8 +1053,8 @@ if (typeof document !== 'undefined') (function page() {
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
     $('#opt-keep').addEventListener('change', e => { S.opts.keepText = e.target.value; saveSettings(); rebuild(); });
-    $('#opt-max').value = S.opts.maxPerCountry || 100;
-    $('#opt-max').addEventListener('change', e => { S.opts.maxPerCountry = Math.max(1, Number(e.target.value) || 100); saveSettings(); rebuild(); });
+    $('#opt-max').value = S.opts.maxPerCountry || 120;
+    $('#opt-max').addEventListener('change', e => { S.opts.maxPerCountry = Math.max(1, Number(e.target.value) || 120); saveSettings(); rebuild(); });
     $('#curate-box').addEventListener('change', e => {
       const cc = e.target.value; if (!cc) return;
       const set = new Set(S.opts.curate || []);

@@ -10,7 +10,7 @@ const CATEGORIES = ['Main Channels', 'Entertainment', 'Movies', 'Sports', 'News'
 const COUNTRY_ALIASES = { GB: 'UK', ENG: 'UK', USA: 'US', CAN: 'CA', GER: 'DE', DEU: 'DE', FRA: 'FR', ESP: 'ES',
   ITA: 'IT', POR: 'PT', NED: 'NL', POL: 'PL', TUR: 'TR', IRL: 'IE', AUS: 'AU', NZL: 'NZ', IND: 'IN', SWE: 'SE',
   NOR: 'NO', DEN: 'DK', DNK: 'DK', FIN: 'FI', BEL: 'BE', SUI: 'CH', AUT: 'AT', GRE: 'GR', ALB: 'AL', ROU: 'RO',
-  ROM: 'RO', BUL: 'BG', HUN: 'HU', CZE: 'CZ', RUS: 'RU', UKR: 'UA', BRA: 'BR', MEX: 'MX', ARG: 'AR', AR: 'ARAB', KSA: 'SA',
+  ROM: 'RO', BUL: 'BG', HUN: 'HU', CZE: 'CZ', RUS: 'RU', UKR: 'UA', BRA: 'BR', MEX: 'MX', ARG: 'AR', AR: 'ARAB', LA: 'LATAM', KSA: 'SA',
   UAE: 'AE', PAK: 'PK', BAN: 'BD', PHI: 'PH', 'EX-YU': 'EXYU', EXYU: 'EXYU', YU: 'EXYU', ARAB: 'ARAB', ARA: 'ARAB',
   AFR: 'AFR', LAT: 'LATAM', LATAM: 'LATAM', LATINO: 'LATAM', CARIB: 'CARIB', CAR: 'CARIB', KUR: 'KURD' };
 const COUNTRY_WORDS = { 'united kingdom': 'UK', england: 'UK', britain: 'UK', 'great britain': 'UK', scotland: 'UK',
@@ -89,6 +89,7 @@ const PREFIX_RE = /^\s*[\[(|{]?\s*([A-Za-z]{2,3}(?:-[A-Za-z]{2,4})?)\s*(?:\(([^)
 // "US CNN": a bare code and a space, only for these upper-case codes
 const SPACE_PREFIX_RE = /^\s*(UK|US|USA|CA|CAN|AU|AUS|IE|NZ)\s+(?=\S)/;
 // "EN| CNN": a language tag rather than a country
+const TAG_PREFIX_RE = /^\s*[\[(|]?\s*([A-Za-z0-9+&'.]{1,10}(?: [A-Za-z0-9+&'.]{1,10})?)\s*(?:[\])|:]|\s[|•⋆★»➤►▶➾]|[•⋆★»➤►▶➾])+\s*/u;
 const LANG_PREFIX_RE = /^\s*[\[(|]?\s*(EN|ENG)\s*[^\p{L}\p{N}\s]+\s*/u;
 function countryFromText(text, resolve) {
   if (!text) return null;
@@ -156,13 +157,22 @@ function cleanName(raw, cc, resolve) {
   if (alnum.length < 1 || (/^[\s#=*~_\-★☆✦◆•|]{3,}/u.test(s) && /[#=*~_\-★☆✦◆•|]{3,}\s*$/u.test(s))) {
     return { separator: true };
   }
-  let nameCc = null;
+  let nameCc = null, tag = '';
   const m = s.match(PREFIX_RE);
   if (m && resolve(m[1])) { nameCc = resolve(m[1]); s = s.slice(m[0].length); }
   else {
     const sp = s.match(SPACE_PREFIX_RE);
     if (sp && resolve(sp[1])) { nameCc = resolve(sp[1]); s = s.slice(sp[0].length); }
-    else { const lp = s.match(LANG_PREFIX_RE); if (lp) s = s.slice(lp[0].length); }
+    else {
+      const lp = s.match(LANG_PREFIX_RE);
+      if (lp) s = s.slice(lp[0].length);
+      else {
+        // a tag that isn't a country ("VIP | HGTV", "ENT: Bravo", "[PRIME] HBO"): drop it from the name;
+        // the country then comes from the channel catalogue
+        const tp = s.match(TAG_PREFIX_RE);
+        if (tp && /[A-Za-z]/.test(s.slice(tp[0].length))) { tag = tp[1]; s = s.slice(tp[0].length); }
+      }
+    }
   }
   // "01. BBC One", "101 - BBC One"
   s = s.replace(/^\s*\d{1,4}\s*[.):\-]\s+/, '');
@@ -185,7 +195,7 @@ function cleanName(raw, cc, resolve) {
   if (tail && country && resolve(tail[1]) === country && s.split(' ').length > 1) s = s.slice(0, -tail[0].length).trim();
   s = s.replace(/^[\s\-:|_.,/]+|[\s\-:|_.,/]+$/g, '').trim();
   if (!s) return { separator: true };
-  return { clean: s, nameCc, quality, hevc, backup, timeshift };
+  return { clean: s, nameCc, quality, hevc, backup, timeshift, tag };
 }
 
 // ---------------------------------------------------------------- logos
@@ -302,11 +312,14 @@ function buildCatalog({ channels, logos, feeds, countries }) {
   return { byId, nameIdx, feedIdx, byCountry, countryNames, fuzzyCache: new Map() };
 }
 
+const HOME_PREFERENCE = ['US', 'UK', 'CA', 'AU', 'IE', 'NZ'];
 function pickBest(list, cc) {
   if (!list || !list.length) return null;
   let best = null, bestScore = -1;
   for (const c of list) {
-    const s = (c.country === cc ? 10 : 0) + (c.closed ? 0 : 3) + (c.logo ? 1 : 0);
+    // no country label: assume the best-known version (HGTV → US, not a Vietnamese channel of the same name)
+    const pref = cc ? 0 : Math.max(0, 6 - HOME_PREFERENCE.indexOf(c.country)) % 7;
+    const s = (c.country === cc ? 10 : 0) + pref * 2 + (c.closed ? 0 : 3) + (c.logo ? 1 : 0);
     if (s > bestScore) { best = c; bestScore = s; }
   }
   return best;
@@ -465,7 +478,7 @@ function prepareEntries(rawEntries, resolve, cat) {
     const c = cleanName(r.name, groupCc, resolve);
     if (c.separator) return;
     const e = { ...r, idx: i, clean: c.clean, quality: c.quality, hevc: c.hevc, backup: c.backup,
-      timeshift: c.timeshift, groupCat: categoryFromGroup(r.group) };
+      timeshift: c.timeshift, groupCat: categoryFromGroup(r.group) || categoryFromGroup(c.tag) };
     e.cc = c.nameCc || groupCc || null;
     e.baseKey = (e.cc || '') + '|' + norm(e.clean);
     e.auto = cat ? matchExact(cat, e.clean, e.cc) : null;

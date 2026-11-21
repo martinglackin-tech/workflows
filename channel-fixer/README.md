@@ -15,6 +15,12 @@ Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlis
 - **Fix anything by hand**: rename, change the group, set a logo, re-match or hide a channel. Your fixes are saved and reapplied every time you rebuild.
 - Keeps the **TV guide** (your provider's EPG link and IDs) and **catch-up** information.
 
+## Logos
+
+- Channels keep your provider's logos. A missing or dead one is replaced with a transparent logo from the tv-logos collection.
+- **Your own logos:** put a picture named after the channel (for example `TLC.png`) in the `logos` folder. It wins over everything else. Step 4 lists the channels that still have no logo.
+- **Serve logos from this computer** (on by default): when you share, the helper saves every logo once and the playlists point TiviMate at this computer, so logos keep working even if the original site goes away. This needs `--lan`.
+
 ## Running it
 
 You need Python 3 (free from python.org; it's already on Mac and Linux). No extra packages are needed.

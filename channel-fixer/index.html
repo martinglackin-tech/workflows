@@ -128,6 +128,7 @@
       <label class="check"><input type="checkbox" id="opt-unmatched" checked> Keep channels that aren't in the catalogue (with a cleaned name)</label>
       <label class="check"><input type="checkbox" id="opt-backups"> Keep the other copies in a "Backups" group</label>
       <label class="check"><input type="checkbox" id="opt-adult" checked> Hide adult channels</label>
+      <label class="check"><input type="checkbox" id="opt-servelogos" checked> Serve logos from this computer (they're saved here once, so TiviMate always finds them)</label>
     </div>
   </section>
 
@@ -165,6 +166,7 @@
   <section class="card hidden" id="step-export">
     <h2><span class="num">4</span> Get it into TiviMate</h2>
     <div id="playlists" class="playlists"></div>
+    <div id="nologo"></div>
     <div class="export-btns">
       <button class="btn primary" id="btn-publish">Share all on my home network</button>
       <button class="btn" id="btn-overrides-export">Back up my fixes</button>

@@ -214,7 +214,10 @@ const TVLOGOS_GLOBAL = ['international', 'world-europe', 'world-asia'];
 function slugify(s) {
   return String(s).normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
-const LOGO_ALIASES = { more4: '4more', more4plus1: '4moreplus', cbbc: 'bbccbbc', cbeebies: 'bbccbeebies' };
+const LOGO_ALIASES = { more4: '4more', more4plus1: '4moreplus', cbbc: 'bbccbbc', cbeebies: 'bbccbeebies',
+  e: 'eentertainment', ion: 'iontelevision', cw: 'cw', pbsamerica: 'pbs' };
+const LOGO_STYLE_WORDS = new Set(['hz', 'white', 'light', 'dark', 'alt', 'mono', 'black', 'logo', 'default', 'square',
+  'framed', 'icon', 'color', 'colour', 'flat', 'vertical', 'aluminum', 'butterscotch', 'garnet']);
 function logoKeys(k) {
   const out = [k];
   if (LOGO_ALIASES[k]) out.push(LOGO_ALIASES[k]);
@@ -233,8 +236,10 @@ function buildLogoIndex(paths, countries) {
     if (!m || /obsolete/i.test(m[2])) continue;
     const parts = m[2].toLowerCase().split('-');
     if (parts.length > 1 && /^[a-z]{2,4}$|^\d+_[a-z]+$/.test(parts[parts.length - 1])) parts.pop(); // country suffix
-    const variant = parts.some(p => ['hz', 'white', 'light', 'dark', 'alt', 'mono', 'black'].includes(p));
-    const clean = parts.filter(p => !['hz', 'white', 'light', 'dark', 'alt', 'mono', 'black'].includes(p));
+    // "cbs-logo-white", "abc-logo-2013-default": style words and years aren't part of the name
+    const isStyle = p => LOGO_STYLE_WORDS.has(p) || /^(19|20)\d\d$/.test(p);
+    const variant = parts.some(isStyle);
+    const clean = parts.filter(p => !isStyle(p));
     const key = norm(clean.join(' '));
     const targets = TVLOGOS_GLOBAL.includes(m[1]) ? [global]
       : (folderToCc[m[1]] || []).map(cc => { if (!byCc.has(cc)) byCc.set(cc, new Map()); return byCc.get(cc); });
@@ -530,6 +535,32 @@ function buildChannels(entries, cat, overrides, opts) {
   for (const [cc, list] of Object.entries(CURATED_MAIN)) curatedRank[cc] = new Map(list.map((n, i) => [norm(n), i]));
 
   let channels = [...map.values()];
+  // Logo for a channel. Order: a file you put in the logos folder, then (by the Logos setting) your provider's,
+  // the transparent tv-logos collection, the catalogue. Dead provider links (opts.brokenLogos) are skipped.
+  const myLogo = names => {
+    if (!opts.myLogos) return '';
+    for (const n of names) { const f = n && opts.myLogos.get(norm(n)); if (f) return f; }
+    return '';
+  };
+  function pickLogo(ch, extra) {
+    const m = ch.match, best = ch.variants[0];
+    const names = [...extra, ch.name, ch.autoName && ch.autoName.replace(/ \+\d+$/, ''), m && !m.feed ? m.ch.name : null,
+      ...(m && !m.feed ? m.ch.alt : []), best.clean].filter(Boolean);
+    const feedLogo = m && m.feed && m.feed.id && m.ch.feedLogos[m.feed.id];
+    const catalogLogo = (feedLogo && feedLogo.url) || (m && m.ch.logo) || '';
+    const providerLogo = ch.variants.map(v => v.logo).find(Boolean) || '';
+    const tvLogo = findTvLogo(cat.tvLogos, names, ch.cc, ch.timeshift)
+      // regional version with no logo of its own: borrow the main channel's
+      || (m && m.feed ? findTvLogo(cat.tvLogos, [m.ch.name, ...m.ch.alt], ch.cc, ch.timeshift) : '');
+    ch.providerLogo = providerLogo;
+    const providerOk = providerLogo && !(opts.brokenLogos && opts.brokenLogos.has(providerLogo)) ? providerLogo : '';
+    let auto;
+    if (opts.logos === 'provider') auto = providerOk || (providerLogo ? tvLogo : '');
+    else if (opts.logos === 'provider-fill') auto = providerOk || tvLogo || '';
+    else auto = [tvLogo, catalogLogo, providerLogo].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
+    ch.autoLogo = myLogo(names) || auto;
+    ch.logo = (ch.ov && ch.ov.logo) || ch.autoLogo;
+  }
   for (const ch of channels) {
     const m = ch.match;
     const ov = ovChan[ch.key] || {};
@@ -543,20 +574,8 @@ function buildChannels(entries, cat, overrides, opts) {
     const feedLogo = m && m.feed && m.feed.id && m.ch.feedLogos[m.feed.id];
     const catalogLogo = (feedLogo && feedLogo.url) || (m && m.ch.logo) || '';
     const providerLogo = ch.variants.map(v => v.logo).find(Boolean) || '';
-    const tvLogo = findTvLogo(cat.tvLogos, [name.replace(/ \+\d+$/, ''), m && m.feed ? null : m && m.ch.name,
-      ...(m && !m.feed ? m.ch.alt : []), best.clean], ch.cc, ch.timeshift);
-    // regional version with no logo of its own: borrow the main channel's
-    const mainTvLogo = m && m.feed ? findTvLogo(cat.tvLogos, [m.ch.name, ...m.ch.alt], ch.cc, ch.timeshift) : '';
-    // 'provider': exactly the provider's logos (as TiviMate showed before); channels without one get none,
-    // so TiviMate can fall back to the guide's logo. 'provider-fill': gaps filled from tv-logos only,
-    // whose logos are transparent PNGs. 'best': anything found.
-    ch.providerLogo = providerLogo;
-    // a provider logo the helper found dead: use the transparent tv-logos one, or none so TiviMate can use the guide's
-    const providerOk = providerLogo && !(opts.brokenLogos && opts.brokenLogos.has(providerLogo)) ? providerLogo : '';
-    if (opts.logos === 'provider') ch.autoLogo = providerOk || (providerLogo ? tvLogo : '');
-    else if (opts.logos === 'provider-fill') ch.autoLogo = providerOk || tvLogo || '';
-    else ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
-    ch.logo = ov.logo || ch.autoLogo;
+    ch.pickLogo = extra => pickLogo(ch, extra);
+    pickLogo(ch, []);
     ch.epgId = best.epgId || ch.variants.map(v => v.epgId).find(Boolean) || (m ? m.ch.id : '');
     ch.status = !m ? 'unmatched' : m.how;
     const rank = curatedRank[ch.cc] && m ? curatedRank[ch.cc].get(norm(m.ch.name)) : undefined;
@@ -743,10 +762,11 @@ function curate(chs, list, max) {
     if (!ch.ov.cat) ch.cat = c.e.cat;
     ch.rank = c.e.rank;
     // a network picked from local stations ("ABC New York WABC", "Seven Sydney") is just called "ABC" / "Seven"
-    if (c.e.alts[0].wild && !ch.ov.name && c.s > 0) {
+    if (c.e.alts[0].wild && !ch.ov.name) {
       const base = c.e.label;
       ch.name = base + (ch.timeshift ? ' +' + ch.timeshift : '');
     }
+    if (ch.pickLogo) ch.pickLogo([c.e.label, ...c.e.alts.map(a => a.key)]);
     ch.isRegional = false; // "AMC East" is the channel itself here, not a regional extra
     ch.mainKey = null;
     if (ch.match && ch.match.feed && !ch.ov.name) { // and is simply called "AMC"
@@ -792,7 +812,8 @@ function buildM3U(channels, ctx) {
       extra = ` catchup="${attr(v.catchup.type)}"` + (v.catchup.days ? ` catchup-days="${attr(v.catchup.days)}"` : '')
         + (v.catchup.source ? ` catchup-source="${attr(v.catchup.source)}"` : '');
     }
-    lines.push(`#EXTINF:-1 tvg-id="${attr(c.epgId)}" tvg-name="${attr(name)}" tvg-logo="${attr(c.logo)}"`
+    const logo = ctx.resolveLogo ? ctx.resolveLogo(c.logo) : c.logo;
+    lines.push(`#EXTINF:-1 tvg-id="${attr(c.epgId)}" tvg-name="${attr(name)}" tvg-logo="${attr(logo)}"`
       + `${chno ? ` tvg-chno="${chno}"` : ''} group-title="${attr(group)}"${extra},${name.replace(/[\r\n]+/g, ' ')}`);
     lines.push(url);
   };
@@ -824,7 +845,7 @@ if (typeof document !== 'undefined') (function page() {
     source: null, entries: [], epg: '', channels: [], overrides: { match: {}, chan: {} },
     page: 0, testing: false,
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
-      groupNames: 'auto', format: 'ts', logos: 'provider', englishOnly: true, noSports: true, noCrime: true,
+      groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
       regionalKeep: 'UK', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
@@ -850,6 +871,8 @@ if (typeof document !== 'undefined') (function page() {
   async function init() {
     S.opts = { ...S.opts, ...store.get('cf-settings', {}) };
     // the limit went from 100 to 120; move saved settings over once (a value you chose yourself is kept after that)
+    // channels without a provider logo now get a transparent one by default
+    if (!S.opts.logosFill) { if (S.opts.logos === 'provider') S.opts.logos = 'provider-fill'; S.opts.logosFill = true; }
     if (!S.opts.limit120) { if (S.opts.maxPerCountry === 100) S.opts.maxPerCountry = 120; S.opts.limit120 = true; }
     try {
       S.info = await getJson('/api/info');
@@ -992,6 +1015,7 @@ if (typeof document !== 'undefined') (function page() {
     setStatus(loadStatus, `Cleaning ${raw.length.toLocaleString()} channels…`);
     S.source = source; S.epg = epg || '';
     S.entries = prepareEntries(raw, S.resolve, S.cat);
+    loadMyLogos().then(() => { if (S.myLogos && S.myLogos.size) rebuild(true); });
     const counts = countByCountry();
     S.opts.countries = S.opts.countries.filter(c => counts.has(c));
     if (!S.opts.countries.length) {
@@ -1051,7 +1075,7 @@ if (typeof document !== 'undefined') (function page() {
     }
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
-      '#opt-religion': 'noReligion', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional' };
+      '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
@@ -1088,7 +1112,15 @@ if (typeof document !== 'undefined') (function page() {
     renderCurate(); renderStats(); renderGroupFilter(); renderRows(); schedulePlaylists();
     scheduleLogoCheck();
   }
-  function buildOpts(extra) { return { ...S.opts, brokenLogos: S.brokenLogos, ...(extra || {}) }; }
+  function buildOpts(extra) { return { ...S.opts, brokenLogos: S.brokenLogos, myLogos: S.myLogos, ...(extra || {}) }; }
+  // logos you put in the "logos" folder, matched by file name ("TLC.png" → TLC)
+  async function loadMyLogos() {
+    if (!S.helper) return;
+    try {
+      const files = await getJson('/api/mylogos');
+      S.myLogos = new Map(files.map(f => [norm(f.replace(/\.[a-z0-9]+$/i, '')), '/logos/' + encodeURIComponent(f)]));
+    } catch (_) { S.myLogos = null; }
+  }
 
   // ---------- logo check: the helper tries each provider logo link once (results kept for a week)
   S.brokenLogos = new Set(); S.checkedLogos = new Set();
@@ -1326,7 +1358,8 @@ if (typeof document !== 'undefined') (function page() {
     for (const l of lists) {
       l.count = l.channels.filter(c => c.out).length;
       l.file = `${l.id}.m3u`;
-      l.text = () => buildM3U(l.channels, { epg: S.epg, streamUrl, backups: S.opts.backups, multi: l.multi });
+      l.text = () => buildM3U(l.channels, { epg: S.epg, streamUrl, backups: S.opts.backups, multi: l.multi,
+        resolveLogo: S.resolveLogo });
     }
     return lists;
   }
@@ -1347,11 +1380,44 @@ if (typeof document !== 'undefined') (function page() {
       ${leftOut(l) ? `<small>Left out: ${escapeHtml(leftOut(l))}</small>` : ''}</span>
       <button class="btn" data-dl="${escapeHtml(l.id)}">Download</button></div>`).join('')
       || '<p class="hint">Tick at least one country.</p>';
+    // channels that still have no logo: add a file named after them to the logos folder
+    const missing = [];
+    for (const l of S.playlists) for (const c of l.channels) if (c.out && !c.logo) missing.push(`${c.name} (${l.title.replace(/^\S+\s/, '')})`);
+    $('#nologo').innerHTML = missing.length ? `<details><summary>${missing.length} channels still have no logo</summary>
+      <p class="hint">Put a picture named after the channel (for example <code>TLC.png</code>) in the <code>logos</code> folder
+      inside channel-fixer, then click <b>Load channels</b> again.</p><p>${escapeHtml(missing.join(' · '))}</p></details>` : '';
+  }
+  // Before sharing or downloading: work out the logo links. With "serve logos from this computer", every logo is
+  // downloaded once by the helper and the playlist points at this computer; your own logos always come from here.
+  async function prepareLogos() {
+    S.resolveLogo = null;
+    if (!S.helper) return;
+    let base = null;
+    try { const info = await getJson('/api/info'); if (info.lan && info.ips.length) base = `http://${info.ips[0]}:${info.port}`; } catch (_) { /* no helper */ }
+    let cached = {};
+    if (base && S.opts.serveLogos) {
+      const urls = [...new Set(S.playlists.flatMap(l => l.channels.filter(c => c.out && /^https?:/.test(c.logo)).map(c => c.logo)))];
+      for (let i = 0; i < urls.length; i += 300) {
+        setStatus(exportStatus, `Saving logos on this computer… ${Math.min(i + 300, urls.length)}/${urls.length}`);
+        try {
+          const r = await fetch('/api/logobundle', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: urls.slice(i, i + 300) }) });
+          if (r.ok) Object.assign(cached, await r.json());
+        } catch (_) { break; }
+      }
+    }
+    S.resolveLogo = u => {
+      if (!u) return '';
+      if (u.startsWith('/')) return base ? base + u : '';
+      if (cached[u]) return `${base}/logo-cache/${cached[u]}`;
+      return u;
+    };
   }
   const exportStatus = $('#export-status');
-  $('#playlists').addEventListener('click', e => {
+  $('#playlists').addEventListener('click', async e => {
     const id = e.target.dataset.dl; if (!id) return;
     const l = S.playlists.find(x => x.id === id); if (!l) return;
+    await prepareLogos();
     const blob = new Blob([l.text()], { type: 'audio/x-mpegurl' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `channel-fixer-${l.file}` });
     document.body.appendChild(a); a.click(); a.remove();
@@ -1362,6 +1428,7 @@ if (typeof document !== 'undefined') (function page() {
     if (!S.helper) return setStatus(exportStatus, 'Sharing needs the helper running with --lan.', 'error');
     try {
       const files = {};
+      await prepareLogos();
       for (const l of S.playlists || []) files[l.file] = l.text();
       const r = await fetch('/api/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }) });
       if (!r.ok) throw new Error((await r.json()).error);

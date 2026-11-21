@@ -23,6 +23,10 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(HERE, "data")
 PLAYLIST_DIR = os.path.join(DATA_DIR, "playlists")
+MY_LOGOS_DIR = os.path.join(HERE, "logos")            # logos you add yourself, named after the channel
+LOGO_CACHE_DIR = os.path.join(DATA_DIR, "logo-cache")  # logos downloaded so TiviMate loads them from here
+IMAGE_TYPES = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp",
+               ".svg": "image/svg+xml", ".gif": "image/gif"}
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
@@ -117,6 +121,39 @@ def check_logos(urls):
     return {u: LOGO_CACHE[u][0] for u in urls}
 
 
+def download_logo(url):
+    """Save one logo into logo-cache (once); returns the file name or None."""
+    import hashlib
+    ext = os.path.splitext(urllib.parse.urlsplit(url).path)[1].lower()
+    name = hashlib.sha1(url.encode()).hexdigest()[:20] + (ext if ext in IMAGE_TYPES else ".png")
+    fpath = os.path.join(LOGO_CACHE_DIR, name)
+    if os.path.exists(fpath):
+        return name
+    try:
+        status, ctype, body = fetch(url, timeout=15, user_agent=BROWSER_UA, limit=3 * 1024 * 1024)
+        head = body.lstrip()[:16]
+        if status != 200 or not (ctype.startswith("image/") or head.startswith(IMAGE_MAGIC)):
+            return None
+        if not os.path.splitext(name)[1] == ".svg" and ctype.startswith("image/svg"):
+            name = name.rsplit(".", 1)[0] + ".svg"
+            fpath = os.path.join(LOGO_CACHE_DIR, name)
+        with open(fpath + ".tmp", "wb") as fh:
+            fh.write(body)
+        os.replace(fpath + ".tmp", fpath)
+        return name
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def bundle_logos(urls):
+    """{url: cached file name or None}, downloading 16 at a time."""
+    from concurrent.futures import ThreadPoolExecutor
+    os.makedirs(LOGO_CACHE_DIR, exist_ok=True)
+    urls = [u for u in dict.fromkeys(urls) if u.lower().startswith(("http://", "https://"))]
+    with ThreadPoolExecutor(16) as pool:
+        return dict(zip(urls, pool.map(download_logo, urls)))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ChannelFixer/1.0"
 
@@ -180,6 +217,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self.probe()
             if path == "/api/overrides":
                 return self.send_file_or(os.path.join(DATA_DIR, "overrides.json"), b"{}", "application/json")
+            if path == "/api/mylogos":
+                files = sorted(f for f in os.listdir(MY_LOGOS_DIR)
+                               if os.path.splitext(f)[1].lower() in IMAGE_TYPES) if os.path.isdir(MY_LOGOS_DIR) else []
+                return self.send_json(200, files)
+            lm = re.fullmatch(r"/(logos|logo-cache)/([^/]+)", path)
+            if lm:
+                name = urllib.parse.unquote(lm.group(2))
+                folder = MY_LOGOS_DIR if lm.group(1) == "logos" else LOGO_CACHE_DIR
+                ext = os.path.splitext(name)[1].lower()
+                fpath = os.path.join(folder, name)
+                if "/" in name or name.startswith(".") or ext not in IMAGE_TYPES or not os.path.isfile(fpath):
+                    return self.send_json(404, {"error": "No such logo"})
+                with open(fpath, "rb") as fh:
+                    return self.send_bytes(200, fh.read(), IMAGE_TYPES[ext], {"Cache-Control": "max-age=604800"})
             m = re.fullmatch(r"/playlists/([a-z0-9-]+\.m3u)", path)
             if m:
                 return self.send_file_or(os.path.join(PLAYLIST_DIR, m.group(1)), None, "audio/x-mpegurl")
@@ -192,6 +243,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == "/api/logobundle":
+                urls = json.loads(self.read_body(5 * 1024 * 1024)).get("urls") or []
+                return self.send_json(200, bundle_logos([u for u in urls if isinstance(u, str)][:3000]))
             if path == "/api/logocheck":
                 urls = json.loads(self.read_body(5 * 1024 * 1024)).get("urls") or []
                 return self.send_json(200, check_logos([u for u in urls if isinstance(u, str)][:2000]))

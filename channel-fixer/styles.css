@@ -110,3 +110,12 @@ dialog::backdrop { background: rgba(0,0,0,.55); }
   .row2 { grid-template-columns: 1fr; }
   .chan th:nth-child(5), .chan td:nth-child(5) { display: none; }
 }
+.playlists { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.playlist { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; padding: 10px 12px; border-radius: 8px; background: var(--panel-2); }
+.playlist b { font-size: 15px; }
+.playlist small { color: var(--muted); }
+.playlist code { font-size: 12px; }
+#tennis-preview { margin-top: 12px; }
+#tennis-preview summary { cursor: pointer; font-weight: 600; }
+#tennis-list h4 { margin: 12px 0 4px; font-size: 14px; }
+#tennis-list p { margin: 0; color: var(--muted); font-size: 13px; }

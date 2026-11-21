@@ -8,6 +8,9 @@ Turns a messy IPTV channel list (Xtream Codes login or M3U) into a clean playlis
 - **TV-style order**: main channels first (BBC One, BBC Two, ITV1, Channel 4… for the UK), then Entertainment, Movies, Sports, News, Documentary, Kids and so on. Channel numbers are set.
 - **Regional and +1 versions** (BBC One London, ITV1 Granada, E4 +1) go in their own group, straight after the main channel, or are hidden.
 - **Pick your countries** in the order you want them. Nothing is deleted, so you can change them at any time.
+- **One playlist per country** (or one combined), each numbered from 1, to add to TiviMate separately.
+- **Leave out** channels that aren't in English, sports channels, true crime channels, and any words you list (for example `shopping, quiz`).
+- **Tennis playlist**: dedicated tennis channels and tournament feeds from every country, plus a group for each Grand Slam with the channels that broadcast it around the world. The broadcaster list is in `tennis-rights.js`. Rights change, so edit it whenever you need to; it's written to be readable.
 - **Fix anything by hand**: rename, change the group, set a logo, re-match or hide a channel. Your fixes are saved and reapplied every time you rebuild.
 - Keeps the **TV guide** (your provider's EPG link and IDs) and **catch-up** information.
 
@@ -28,7 +31,7 @@ To let your TV load the playlist straight from your computer, start the helper w
 python3 server.py --lan
 ```
 
-After you click **Share on my home network**, the page shows a link like `http://192.168.1.20:8765/playlist.m3u` to enter in TiviMate. The computer has to stay on for TiviMate to refresh the playlist.
+After you click **Share all on my home network**, the page shows a link for each playlist, such as `http://192.168.1.20:8765/playlists/uk.m3u` and `.../playlists/tennis.m3u`, to add in TiviMate. The computer has to stay on for TiviMate to refresh the playlist.
 
 Without the helper, you can still open `index.html` (or a hosted copy of it) and use the **M3U file** tab. Logging in with your Xtream details needs the helper because browsers block direct requests to IPTV servers.
 

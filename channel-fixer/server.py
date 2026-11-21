@@ -75,6 +75,48 @@ def lan_addresses():
     return sorted(ip for ip in ips if not ip.startswith("127."))
 
 
+LOGO_CACHE = {}
+LOGO_CACHE_FILE = os.path.join(DATA_DIR, "logocheck.json")
+LOGO_MAX_AGE = 7 * 24 * 3600
+BROWSER_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+IMAGE_MAGIC = (b"\x89PNG", b"\xff\xd8\xff", b"GIF8", b"RIFF", b"<svg", b"<?xml", b"\x00\x00\x01\x00")
+
+
+def logo_works(url):
+    if not url.lower().startswith(("http://", "https://")):
+        return False
+    try:
+        status, ctype, body = fetch(url, timeout=8, user_agent=BROWSER_UA, limit=512)
+        if status != 200 or not body:
+            return False
+        head = body.lstrip()[:16]
+        return ctype.startswith("image/") or head.startswith(IMAGE_MAGIC)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def check_logos(urls):
+    """{url: True/False}; each link is tried once a week, 16 at a time."""
+    from concurrent.futures import ThreadPoolExecutor
+    if not LOGO_CACHE and os.path.exists(LOGO_CACHE_FILE):
+        try:
+            with open(LOGO_CACHE_FILE) as fh:
+                LOGO_CACHE.update(json.load(fh))
+        except (OSError, ValueError):
+            pass
+    now = time.time()
+    todo = [u for u in set(urls) if u not in LOGO_CACHE or now - LOGO_CACHE[u][1] > LOGO_MAX_AGE]
+    if todo:
+        with ThreadPoolExecutor(16) as pool:
+            for u, ok in zip(todo, pool.map(logo_works, todo)):
+                LOGO_CACHE[u] = [ok, now]
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(LOGO_CACHE_FILE + ".tmp", "w") as fh:
+            json.dump(LOGO_CACHE, fh)
+        os.replace(LOGO_CACHE_FILE + ".tmp", LOGO_CACHE_FILE)
+    return {u: LOGO_CACHE[u][0] for u in urls}
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "ChannelFixer/1.0"
 
@@ -150,6 +192,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == "/api/logocheck":
+                urls = json.loads(self.read_body(5 * 1024 * 1024)).get("urls") or []
+                return self.send_json(200, check_logos([u for u in urls if isinstance(u, str)][:2000]))
             if path == "/api/overrides":
                 body = self.read_body(20 * 1024 * 1024)
                 json.loads(body)  # validate

@@ -550,8 +550,11 @@ function buildChannels(entries, cat, overrides, opts) {
     // 'provider': exactly the provider's logos (as TiviMate showed before); channels without one get none,
     // so TiviMate can fall back to the guide's logo. 'provider-fill': gaps filled from tv-logos only,
     // whose logos are transparent PNGs. 'best': anything found.
-    if (opts.logos === 'provider') ch.autoLogo = providerLogo;
-    else if (opts.logos === 'provider-fill') ch.autoLogo = providerLogo || tvLogo || '';
+    ch.providerLogo = providerLogo;
+    // a provider logo the helper found dead: use the transparent tv-logos one, or none so TiviMate can use the guide's
+    const providerOk = providerLogo && !(opts.brokenLogos && opts.brokenLogos.has(providerLogo)) ? providerLogo : '';
+    if (opts.logos === 'provider') ch.autoLogo = providerOk || (providerLogo ? tvLogo : '');
+    else if (opts.logos === 'provider-fill') ch.autoLogo = providerOk || tvLogo || '';
     else ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
     ch.logo = ov.logo || ch.autoLogo;
     ch.epgId = best.epgId || ch.variants.map(v => v.epgId).find(Boolean) || (m ? m.ch.id : '');
@@ -1080,9 +1083,37 @@ if (typeof document !== 'undefined') (function page() {
   // ---------- review
   function rebuild(keepPage) {
     if (!S.entries.length) return;
-    S.channels = buildChannels(S.entries, S.cat, S.overrides, S.opts);
+    S.channels = buildChannels(S.entries, S.cat, S.overrides, buildOpts());
     if (!keepPage) S.page = 0;
     renderCurate(); renderStats(); renderGroupFilter(); renderRows(); schedulePlaylists();
+    scheduleLogoCheck();
+  }
+  function buildOpts(extra) { return { ...S.opts, brokenLogos: S.brokenLogos, ...(extra || {}) }; }
+
+  // ---------- logo check: the helper tries each provider logo link once (results kept for a week)
+  S.brokenLogos = new Set(); S.checkedLogos = new Set();
+  let logoTimer = null;
+  function scheduleLogoCheck() { clearTimeout(logoTimer); logoTimer = setTimeout(checkLogos, 600); }
+  async function checkLogos() {
+    if (!S.helper || S.checkingLogos) return;
+    const urls = [...new Set(S.channels.filter(c => c.out && c.providerLogo).map(c => c.providerLogo))]
+      .filter(u => !S.checkedLogos.has(u));
+    if (!urls.length) return;
+    S.checkingLogos = true;
+    let found = 0;
+    try {
+      for (let i = 0; i < urls.length; i += 200) {
+        setStatus($('#test-status'), `Checking your provider's logos… ${Math.min(i + 200, urls.length)}/${urls.length}`);
+        const r = await fetch('/api/logocheck', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: urls.slice(i, i + 200) }) });
+        if (!r.ok) break;
+        const res = await r.json();
+        for (const [u, ok] of Object.entries(res)) { S.checkedLogos.add(u); if (!ok) { S.brokenLogos.add(u); found++; } }
+      }
+      setStatus($('#test-status'), found ? `${found} of your provider's logos don't load; replaced with transparent ones where available.` : '', found ? 'ok' : '');
+    } catch (_) { /* helper unavailable: keep the logos as they are */ }
+    S.checkingLogos = false;
+    if (found) rebuild(true);
   }
   function renderStats() {
     const out = S.channels.filter(c => c.out);
@@ -1286,7 +1317,7 @@ if (typeof document !== 'undefined') (function page() {
     if (S.opts.perCountry && cs.length > 1) {
       for (const cc of cs) {
         lists.push({ id: playlistId(cc), title: countryLabel(cc), multi: false,
-          channels: buildChannels(S.entries, S.cat, S.overrides, { ...S.opts, countries: [cc], perCountry: false }) });
+          channels: buildChannels(S.entries, S.cat, S.overrides, buildOpts({ countries: [cc], perCountry: false })) });
       }
     } else if (cs.length) {
       lists.push({ id: cs.length === 1 ? playlistId(cs[0]) : 'all', title: cs.length === 1 ? countryLabel(cs[0]) : 'All my countries',

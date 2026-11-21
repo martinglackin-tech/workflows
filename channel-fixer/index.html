@@ -95,6 +95,34 @@
         </select>
       </label>
     </div>
+    <h3>Leave out</h3>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="opt-english" checked> Channels that aren't in English</label>
+      <label class="check"><input type="checkbox" id="opt-sports" checked> Sports channels (except the ones under "Always include")</label>
+      <label class="check"><input type="checkbox" id="opt-crime" checked> True crime channels (Crime+Investigation, Sky Crime, ID, CBS Reality…)</label>
+      <label class="check"><input type="checkbox" id="opt-religion" checked> Religious channels</label>
+      <label class="check"><input type="checkbox" id="opt-kids" checked> Kids channels</label>
+      <label class="check"><input type="checkbox" id="opt-other" checked> Channels that don't fit a group (the "Other" group)</label>
+      <label class="check"><input type="checkbox" id="opt-noregional" checked> Regional versions (BBC One Scotland, ABC 13 Houston…), except for these countries:
+        <input id="opt-regionalkeep" class="short" placeholder="UK"></label>
+      <label>Also leave out channels whose name contains (separate with commas)
+        <input id="opt-words" placeholder="e.g. shopping, quiz, +1">
+      </label>
+    </div>
+    <label>Always include (one per line; add ": FHD, HD" to keep those copies as separate channels)
+      <textarea id="opt-keep" rows="4"></textarea>
+    </label>
+    <div id="curate-wrap" class="hidden">
+      <h3>Popular channels only</h3>
+      <div id="curate-box" class="checks"></div>
+      <label class="inline">Maximum per country <input id="opt-max" type="number" min="1" max="2000" step="10"></label>
+      <p class="hint">The lists are in <code>curated.js</code>, most popular first. Edit it to add or remove channels.</p>
+    </div>
+    <h3>Playlists</h3>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="opt-percountry" checked> A separate playlist for each country</label>
+    </div>
+    <h3>Other</h3>
     <div class="checks">
       <label class="check"><input type="checkbox" id="opt-unmatched" checked> Keep channels that aren't in the catalogue (with a cleaned name)</label>
       <label class="check"><input type="checkbox" id="opt-backups"> Keep the other copies in a "Backups" group</label>
@@ -135,9 +163,9 @@
   <!-- STEP 4: EXPORT -->
   <section class="card hidden" id="step-export">
     <h2><span class="num">4</span> Get it into TiviMate</h2>
+    <div id="playlists" class="playlists"></div>
     <div class="export-btns">
-      <button class="btn primary" id="btn-download">Download playlist (.m3u)</button>
-      <button class="btn" id="btn-publish">Share on my home network</button>
+      <button class="btn primary" id="btn-publish">Share all on my home network</button>
       <button class="btn" id="btn-overrides-export">Back up my fixes</button>
       <label class="btn">Restore fixes<input type="file" id="overrides-import" accept=".json" hidden></label>
     </div>
@@ -169,6 +197,7 @@
   </form>
 </dialog>
 
+<script src="curated.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

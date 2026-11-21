@@ -11,6 +11,7 @@ browser access). Uses only the Python standard library.
 import argparse
 import json
 import os
+import re
 import socket
 import sys
 import time
@@ -21,11 +22,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(HERE, "data")
+PLAYLIST_DIR = os.path.join(DATA_DIR, "playlists")
 STATIC = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/index.html": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+    "/curated.js": ("curated.js", "text/javascript; charset=utf-8"),
 }
 IPTV_ORG_API = "https://iptv-org.github.io/api/"
 IPTV_FILES = {"channels", "logos", "feeds", "countries"}
@@ -121,7 +124,7 @@ class Handler(BaseHTTPRequestHandler):
                     "lan": self.server.lan,
                     "port": self.server.server_address[1],
                     "ips": lan_addresses() if self.server.lan else [],
-                    "published": os.path.exists(os.path.join(DATA_DIR, "playlist.m3u")),
+                    "published": sorted(os.listdir(PLAYLIST_DIR)) if os.path.isdir(PLAYLIST_DIR) else [],
                 })
             if path == "/api/xtream":
                 return self.xtream()
@@ -135,8 +138,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self.probe()
             if path == "/api/overrides":
                 return self.send_file_or(os.path.join(DATA_DIR, "overrides.json"), b"{}", "application/json")
-            if path == "/playlist.m3u":
-                return self.send_file_or(os.path.join(DATA_DIR, "playlist.m3u"), None, "audio/x-mpegurl")
+            m = re.fullmatch(r"/playlists/([a-z0-9-]+\.m3u)", path)
+            if m:
+                return self.send_file_or(os.path.join(PLAYLIST_DIR, m.group(1)), None, "audio/x-mpegurl")
             return self.send_json(404, {"error": "Not found"})
         except ValueError as e:
             return self.send_json(400, {"error": str(e)})
@@ -152,11 +156,17 @@ class Handler(BaseHTTPRequestHandler):
                 self.write_data("overrides.json", body)
                 return self.send_json(200, {"ok": True})
             if path == "/api/publish":
-                body = self.read_body()
-                if not body.startswith(b"#EXTM3U"):
-                    raise ValueError("That isn't an M3U playlist")
-                self.write_data("playlist.m3u", body)
-                return self.send_json(200, {"ok": True})
+                files = json.loads(self.read_body()).get("files") or {}
+                for name, text in files.items():
+                    if not re.fullmatch(r"[a-z0-9-]+\.m3u", name) or not str(text).startswith("#EXTM3U"):
+                        raise ValueError(f"Bad playlist: {name}")
+                os.makedirs(PLAYLIST_DIR, exist_ok=True)
+                for old in os.listdir(PLAYLIST_DIR):
+                    if old not in files:
+                        os.remove(os.path.join(PLAYLIST_DIR, old))
+                for name, text in files.items():
+                    self.write_data(os.path.join("playlists", name), text.encode("utf-8"))
+                return self.send_json(200, {"ok": True, "files": sorted(files)})
             return self.send_json(404, {"error": "Not found"})
         except ValueError as e:
             return self.send_json(400, {"error": str(e)})
@@ -280,7 +290,7 @@ def main():
     print(f"Channel Fixer running: open http://localhost:{args.port} in your browser")
     if args.lan:
         for ip in lan_addresses():
-            print(f"  On your home network: http://{ip}:{args.port}  (playlist: http://{ip}:{args.port}/playlist.m3u)")
+            print(f"  On your home network: http://{ip}:{args.port}")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

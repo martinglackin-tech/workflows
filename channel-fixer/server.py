@@ -154,6 +154,147 @@ def bundle_logos(urls):
         return dict(zip(urls, pool.map(download_logo, urls)))
 
 
+# ---------------------------------------------------------------- TV guide gaps
+# Free guides from epgshare01 (updated daily). TiviMate downloads them itself, so the computer isn't needed.
+FREE_EPG = {
+    "UK": ["https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz"],
+    "US": ["https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz",
+           "https://epgshare01.online/epgshare01/epg_ripper_US_LOCALS1.xml.gz"],
+    "CA": ["https://epgshare01.online/epgshare01/epg_ripper_CA2.xml.gz"],
+    "AU": ["https://epgshare01.online/epgshare01/epg_ripper_AU1.xml.gz"],
+}
+EPG_DIR = os.path.join(DATA_DIR, "epg")
+EPG_MAX_AGE = 12 * 3600
+# New York stations for the networks, so "CBS (New York)" finds WCBS in the locals guide
+NY_CALL_SIGNS = {"abc": "WABC", "cbs": "WCBS", "nbc": "WNBC", "fox": "WNYW", "thecw": "WPIX", "cw": "WPIX",
+                 "pbs": "WNET", "ion": "WPXN", "mynetworktv": "WWOR"}
+# our name -> the free guide's name for the same channel
+EPG_ALIASES = {"hgtv": "homeandgardentelevision", "e": "eentertainmenttelevision", "fxm": "fxmovie",
+               "tcm": "turnerclassicmovies", "foxnews": "foxnewschannel", "cnnnews": "cnn",
+               "showtime": "paramountpluswithshowtime", "epix": "mgmplus", "epix2": "mgmplushits",
+               "mgmplusmarquee": "mgmplusmarquee", "hallmarkdrama": "hallmarkfamily",
+               "hallmarkmoviesandmysteries": "hallmarkmystery", "cspan1": "cspan", "cbsnews": "cbsnewsnationalstream",
+               "abcnews": "abcnewslive", "wgn": "wgndt", "travelchannel": "thetravelchannel", "travel": "thetravel",
+               "mtv": "mtvmusictelevision", "skycinemaselectfeelgood": "skycinemaselect", "skycinemagreats": "skygreats",
+               "talktv": "talkradiotalktv", "virginfour": "virginmediafour", "cnbceurope": "cnbc",
+               "rteone": "rte1", "kisstv": "kiss", "bbcone": "bbconelon"}
+_STYLE = re.compile(r"\b(hd|uhd|fhd|4k|sd|us|usa|uk|east|eastern|\(?pacific\)?|\(?west\)?|\(us\)|feed|national)\b", re.I)
+
+
+def _norm(s):
+    import unicodedata
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
+    s = s.replace("&", " and ").replace("+", " plus ")
+    return re.sub(r"[^a-z0-9]+", "", s)
+
+
+def _epg_keys(name):
+    base = re.sub(r"[._]", " ", name)
+    base = re.sub(r"\.(us2|us_locals1|uk|ca2|au1)$", "", base)
+    plain = _STYLE.sub(" ", base)
+    keys = [_norm(plain)]
+    k = keys[0]
+    for suffix in ("channel", "network", "television", "tv"):
+        if k.endswith(suffix) and len(k) > len(suffix) + 1:
+            keys.append(k[: -len(suffix)])
+    return [k for k in keys if k]
+
+
+def _fetch_epg(url):
+    """Download (cached) and return the raw XML bytes, or None."""
+    import gzip
+    import hashlib
+    os.makedirs(EPG_DIR, exist_ok=True)
+    path = os.path.join(EPG_DIR, hashlib.sha1(url.encode()).hexdigest()[:16] + ".xml")
+    if not (os.path.exists(path) and time.time() - os.path.getmtime(path) < EPG_MAX_AGE):
+        try:
+            _, _, body = fetch(url, timeout=300, user_agent=BROWSER_UA)
+            if body[:2] == b"\x1f\x8b":
+                body = gzip.decompress(body)
+            with open(path + ".tmp", "wb") as fh:
+                fh.write(body)
+            os.replace(path + ".tmp", path)
+        except Exception:  # noqa: BLE001
+            if not os.path.exists(path):
+                return None
+    return path
+
+
+def _epg_summary(path):
+    """(channels {id: [display names]}, ids that have listings from now on)"""
+    import xml.etree.ElementTree as ET
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    chans, live = {}, set()
+    try:
+        for _, el in ET.iterparse(path, events=("end",)):
+            if el.tag == "channel":
+                chans[el.get("id")] = [d.text or "" for d in el.findall("display-name")]
+                el.clear()
+            elif el.tag == "programme":
+                stop = (el.get("stop") or "")[:14]
+                if stop >= now:
+                    live.add(el.get("channel"))
+                el.clear()
+    except ET.ParseError:
+        pass
+    return chans, live
+
+
+def epg_fill(provider_epg, channels):
+    """Find guide listings for channels the provider's guide has nothing for.
+    channels: [{key, epgId, cc, names}] -> {"map": {key: {"id", "url"}}, "sources": [...], counts}"""
+    provider_live = set()
+    if provider_epg:
+        p = _fetch_epg(provider_epg)
+        if p:
+            provider_live = _epg_summary(p)[1]
+    missing = [c for c in channels if not c.get("epgId") or c.get("epgId") not in provider_live]
+    indexes = {}
+    def index_for(url):
+        if url not in indexes:
+            p = _fetch_epg(url)
+            idx = {}
+            if p:
+                chans, live = _epg_summary(p)
+                for cid, names in chans.items():
+                    if cid not in live:
+                        continue
+                    west = bool(re.search(r"pacific|west|\+1|plus1", cid, re.I))
+                    for n in names + [cid]:
+                        for k in _epg_keys(n):
+                            if k not in idx or (idx[k][1] and not west):
+                                idx[k] = (cid, west)
+            indexes[url] = idx
+        return indexes[url]
+    result, used = {}, []
+    for c in missing:
+        keys = []
+        for n in c.get("names") or []:
+            for k in _epg_keys(n):
+                keys += [EPG_ALIASES.get(k, k), k]  # a deliberate alias wins over the loose name
+                if c.get("cc") == "US" and k in NY_CALL_SIGNS:
+                    keys.append(_norm(NY_CALL_SIGNS[k] + "-DT"))
+            m = re.search(r"\b([WK][A-Z]{3})\b", n or "")
+            if m and c.get("cc") == "US":
+                keys.append(_norm(m.group(1) + "-DT"))
+        keys = [k for k in dict.fromkeys(keys) if k]
+        sources = FREE_EPG.get(c.get("cc"), [])
+        if any(k.endswith("dt") and len(k) == 6 for k in keys):  # a network: its New York station's guide first
+            keys = [k for k in keys if k.endswith("dt") and len(k) == 6] + keys
+            sources = sorted(sources, key=lambda u: "LOCALS" not in u)
+        for url in sources:
+            idx = index_for(url)
+            hit = next((idx[k][0] for k in keys if k in idx), None)
+            if hit:
+                result[c["key"]] = {"id": hit, "url": url}
+                if url not in used:
+                    used.append(url)
+                break
+    return {"map": result, "sources": used, "checked": len(channels), "missing": len(missing),
+            "filled": len(result), "providerGuide": bool(provider_live)}
+
+
 def logo_zip(files):
     """A zip with a Logos/ folder: {name in zip: '/logos/<file>' or '/logo-cache/<file>'}."""
     import io
@@ -260,6 +401,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urllib.parse.urlsplit(self.path).path
         try:
+            if path == "/api/epgfill":
+                req = json.loads(self.read_body(20 * 1024 * 1024))
+                return self.send_json(200, epg_fill(req.get("epg") or "", req.get("channels") or []))
             if path == "/api/logozip":
                 files = json.loads(self.read_body(5 * 1024 * 1024)).get("files") or {}
                 return self.send_bytes(200, logo_zip(files), "application/zip",

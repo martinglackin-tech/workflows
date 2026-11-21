@@ -29,6 +29,14 @@ X-plore or File Commander), so it ends up at `/storage/emulated/0/Logos`. Share 
 their logo links now point at that folder (`file:///storage/emulated/0/Logos/…`). TiviMate needs permission to read
 storage (Android TV Settings → Apps → TiviMate → Permissions). Repeat the zip and copy when channels change.
 
+## TV guide gaps
+
+With **Fill gaps in the TV guide from free guides** on, sharing or downloading first checks your provider's guide.
+Channels with no listings there are matched to the free [epgshare01](https://epgshare01.online/epgshare01/) guides
+(UK, US, US local stations, Canada, Australia) and the playlist uses that guide's channel id for them. Step 4 shows which
+guide addresses to add in TiviMate (Settings → EPG → Add EPG source); TiviMate downloads them itself, so this works
+without the computer.
+
 ## Running it
 
 You need Python 3 (free from python.org; it's already on Mac and Linux). No extra packages are needed.

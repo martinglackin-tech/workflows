@@ -827,7 +827,8 @@ function countryLabelShort(cc) { return cc === 'ZZ' ? 'Other' : cc; }
 
 function buildM3U(channels, ctx) {
   const lines = [];
-  lines.push(ctx.epg ? `#EXTM3U url-tvg="${attr(ctx.epg)}" x-tvg-url="${attr(ctx.epg)}"` : '#EXTM3U');
+  const guides = [ctx.epg, ...(ctx.extraEpg || [])].filter(Boolean).join(',');
+  lines.push(guides ? `#EXTM3U url-tvg="${attr(guides)}" x-tvg-url="${attr(guides)}"` : '#EXTM3U');
   const emit = (c, v, name, group, chno) => {
     const url = ctx.streamUrl(v);
     let extra = '';
@@ -837,7 +838,8 @@ function buildM3U(channels, ctx) {
         + (v.catchup.source ? ` catchup-source="${attr(v.catchup.source)}"` : '');
     }
     const logo = ctx.resolveLogo ? ctx.resolveLogo(c.logo) : c.logo;
-    lines.push(`#EXTINF:-1 tvg-id="${attr(c.epgId)}" tvg-name="${attr(name)}" tvg-logo="${attr(logo)}"`
+    const epgId = ctx.epgIdFor ? ctx.epgIdFor(c) : c.epgId;
+    lines.push(`#EXTINF:-1 tvg-id="${attr(epgId)}" tvg-name="${attr(name)}" tvg-logo="${attr(logo)}"`
       + `${chno ? ` tvg-chno="${chno}"` : ''} group-title="${attr(group)}"${extra},${name.replace(/[\r\n]+/g, ' ')}`);
     lines.push(url);
   };
@@ -871,7 +873,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, epgFill: true, logoTarget: 'computer', tvLogoPath: '/storage/emulated/0/Logos', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1102,7 +1104,7 @@ if (typeof document !== 'undefined') (function page() {
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
       '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional',
-      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo' };
+      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo', '#opt-epgfill': 'epgFill' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
@@ -1392,7 +1394,8 @@ if (typeof document !== 'undefined') (function page() {
       l.count = l.channels.filter(c => c.out).length;
       l.file = `${l.id}.m3u`;
       l.text = () => buildM3U(l.channels, { epg: S.epg, streamUrl, backups: S.opts.backups, multi: l.multi,
-        resolveLogo: S.resolveLogo });
+        resolveLogo: S.resolveLogo, extraEpg: S.epgSources || [],
+        epgIdFor: c => (S.epgMap && S.epgMap[c.key] ? S.epgMap[c.key].id : c.epgId) });
     }
     return lists;
   }
@@ -1472,6 +1475,35 @@ if (typeof document !== 'undefined') (function page() {
       return u;
     };
   }
+  // TV guide gaps: channels with no listings in the provider's guide get one from the free epgshare01 guides
+  async function prepareGuide() {
+    S.epgMap = null; S.epgSources = [];
+    if (!S.helper || !S.opts.epgFill) return renderGuideNote();
+    const seen = new Map();
+    for (const l of S.playlists || []) for (const c of l.channels) {
+      if (!c.out || seen.has(c.key)) continue;
+      const m = c.match;
+      seen.set(c.key, { key: c.key, epgId: c.epgId || '', cc: c.cc, names: [...new Set([c.name, c.autoName,
+        m && !m.feed ? m.ch.name : null, ...(m && !m.feed ? m.ch.alt : []), ...c.variants.map(v => v.clean),
+        ...c.variants.map(v => v.name)].filter(Boolean))] });
+    }
+    setStatus(exportStatus, 'Checking the TV guide… (the first time downloads the guides, which can take a minute or two)');
+    try {
+      const r = await fetch('/api/epgfill', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ epg: S.epg, channels: [...seen.values()] }) });
+      if (r.ok) { const res = await r.json(); S.epgMap = res.map; S.epgSources = res.sources; S.epgStats = res; }
+    } catch (_) { /* keep the provider's guide only */ }
+    renderGuideNote();
+  }
+  function renderGuideNote() {
+    const box = $('#epg-extra');
+    if (!S.epgStats || !S.opts.epgFill) { box.innerHTML = ''; return; }
+    const st = S.epgStats;
+    box.innerHTML = `<p><b>TV guide:</b> ${st.missing} of ${st.checked} channels had no listings in your provider's guide;
+      ${st.filled} were found in free guides.${st.missing - st.filled > 0 ? ` ${st.missing - st.filled} have no guide anywhere I can find.` : ''}</p>`
+      + (S.epgSources.length ? `<p>Add ${S.epgSources.length > 1 ? 'these guides' : 'this guide'} in TiviMate
+      (Settings → EPG → Add EPG source), as well as your provider's:</p><ul>${S.epgSources.map(u => `<li><code>${escapeHtml(u)}</code></li>`).join('')}</ul>` : '');
+  }
   $('#btn-logozip').addEventListener('click', async () => {
     if (!S.helper) return setStatus(exportStatus, 'This needs the helper (python3 server.py).', 'error');
     await prepareLogos();
@@ -1490,7 +1522,7 @@ if (typeof document !== 'undefined') (function page() {
   $('#playlists').addEventListener('click', async e => {
     const id = e.target.dataset.dl; if (!id) return;
     const l = S.playlists.find(x => x.id === id); if (!l) return;
-    await prepareLogos();
+    await prepareLogos(); await prepareGuide();
     const blob = new Blob([l.text()], { type: 'audio/x-mpegurl' });
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `channel-fixer-${l.file}` });
     document.body.appendChild(a); a.click(); a.remove();
@@ -1501,7 +1533,7 @@ if (typeof document !== 'undefined') (function page() {
     if (!S.helper) return setStatus(exportStatus, 'Sharing needs the helper running with --lan.', 'error');
     try {
       const files = {};
-      await prepareLogos();
+      await prepareLogos(); await prepareGuide();
       for (const l of S.playlists || []) files[l.file] = l.text();
       const r = await fetch('/api/publish', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ files }) });
       if (!r.ok) throw new Error((await r.json()).error);

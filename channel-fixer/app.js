@@ -472,7 +472,8 @@ function buildChannels(entries, cat, overrides, opts) {
       ...(m && !m.feed ? m.ch.alt : []), best.clean], ch.cc, ch.timeshift);
     // regional version with no logo of its own: borrow the main channel's
     const mainTvLogo = m && m.feed ? findTvLogo(cat.tvLogos, [m.ch.name, ...m.ch.alt], ch.cc, ch.timeshift) : '';
-    ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
+    if (opts.logos === 'provider' && providerLogo) ch.autoLogo = providerLogo;
+    else ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
     ch.logo = ov.logo || ch.autoLogo;
     ch.epgId = best.epgId || ch.variants.map(v => v.epgId).find(Boolean) || (m ? m.ch.id : '');
     ch.status = !m ? 'unmatched' : m.how;
@@ -593,7 +594,7 @@ if (typeof document !== 'undefined') (function page() {
     source: null, entries: [], epg: '', channels: [], overrides: { match: {}, chan: {} },
     page: 0, testing: false,
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
-      groupNames: 'auto', format: 'ts' },
+      groupNames: 'auto', format: 'ts', logos: 'provider' },
   };
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (_) { return d; } },
@@ -807,7 +808,8 @@ if (typeof document !== 'undefined') (function page() {
   });
   $('#more-countries').addEventListener('click', () => renderCountries(true));
   function bindSettings() {
-    const map = { '#opt-quality': 'quality', '#opt-regional': 'regional', '#opt-groupnames': 'groupNames', '#opt-format': 'format' };
+    const map = { '#opt-quality': 'quality', '#opt-regional': 'regional', '#opt-groupnames': 'groupNames', '#opt-format': 'format',
+      '#opt-logos': 'logos' };
     for (const [sel, key] of Object.entries(map)) {
       $(sel).value = S.opts[key];
       $(sel).addEventListener('change', e => { S.opts[key] = e.target.value; saveSettings(); rebuild(); });
@@ -1010,6 +1012,20 @@ if (typeof document !== 'undefined') (function page() {
     S.testing = false; $('#btn-test').textContent = 'Test streams';
     setStatus(st, `Tested ${done} channels. ${fixed} switched to a copy that plays.`, 'ok');
     rebuild(true);
+  });
+
+  // ---------- unrecognised list (names and groups only, never the login or stream links)
+  $('#btn-export-unrec').addEventListener('click', () => {
+    const rows = S.channels.filter(c => c.status === 'unmatched' || c.status === 'fuzzy');
+    const lines = ['status\tcleaned name\tprovider name\tprovider group'];
+    for (const c of rows) for (const v of c.variants) {
+      lines.push([c.status === 'fuzzy' ? 'guessed: ' + c.name : 'unrecognised', v.clean, v.name, v.group]
+        .map(x => String(x).replace(/[\t\r\n]+/g, ' ')).join('\t'));
+    }
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain' });
+    const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'channel-fixer-unrecognised.txt' });
+    document.body.appendChild(a); a.click(); a.remove();
+    setStatus($('#test-status'), `Saved ${rows.length.toLocaleString()} channels to channel-fixer-unrecognised.txt.`, 'ok');
   });
 
   // ---------- export

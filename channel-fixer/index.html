@@ -82,6 +82,12 @@
           <option value="never">Never add the country (News)</option>
         </select>
       </label>
+      <label>Logos
+        <select id="opt-logos">
+          <option value="provider">Keep my provider's logos (fill gaps only)</option>
+          <option value="best">Use the best logo found</option>
+        </select>
+      </label>
       <label id="opt-format-wrap">Stream type
         <select id="opt-format">
           <option value="ts">MPEG-TS (.ts, the TiviMate default)</option>
@@ -114,6 +120,7 @@
       </select>
       <select id="f-group"><option value="">All groups</option></select>
       <button class="btn" id="btn-test" title="Checks which copy of each merged channel actually plays">Test streams</button>
+      <button class="btn" id="btn-export-unrec" title="Saves the provider names that weren't recognised, so they can be used to improve the cleaning rules. No login details are included.">Save unrecognised list</button>
     </div>
     <div id="test-status" class="status"></div>
     <div class="table-wrap">

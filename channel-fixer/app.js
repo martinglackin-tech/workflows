@@ -500,7 +500,11 @@ function buildChannels(entries, cat, overrides, opts) {
       ...(m && !m.feed ? m.ch.alt : []), best.clean], ch.cc, ch.timeshift);
     // regional version with no logo of its own: borrow the main channel's
     const mainTvLogo = m && m.feed ? findTvLogo(cat.tvLogos, [m.ch.name, ...m.ch.alt], ch.cc, ch.timeshift) : '';
-    if (opts.logos === 'provider' && providerLogo) ch.autoLogo = providerLogo;
+    // 'provider': exactly the provider's logos (as TiviMate showed before); channels without one get none,
+    // so TiviMate can fall back to the guide's logo. 'provider-fill': gaps filled from tv-logos only,
+    // whose logos are transparent PNGs. 'best': anything found.
+    if (opts.logos === 'provider') ch.autoLogo = providerLogo;
+    else if (opts.logos === 'provider-fill') ch.autoLogo = providerLogo || tvLogo || '';
     else ch.autoLogo = [tvLogo, catalogLogo, providerLogo, mainTvLogo, m && m.feed ? m.ch.logo : ''].find(u => u && !isBlockedLogo(u)) || catalogLogo || providerLogo || '';
     ch.logo = ov.logo || ch.autoLogo;
     ch.epgId = best.epgId || ch.variants.map(v => v.epgId).find(Boolean) || (m ? m.ch.id : '');

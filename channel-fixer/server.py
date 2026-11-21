@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+"""Channel Fixer local helper.
+
+Serves the Channel Fixer web page and relays the few requests a browser
+cannot make on its own (your provider's server rarely allows direct
+browser access). Uses only the Python standard library.
+
+    python3 server.py            # open http://localhost:8765
+    python3 server.py --lan      # also reachable from your TV / phone
+"""
+import argparse
+import json
+import os
+import socket
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(HERE, "data")
+STATIC = {
+    "/": ("index.html", "text/html; charset=utf-8"),
+    "/index.html": ("index.html", "text/html; charset=utf-8"),
+    "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+    "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+}
+IPTV_ORG_API = "https://iptv-org.github.io/api/"
+IPTV_FILES = {"channels", "logos", "feeds", "countries"}
+CATALOG_MAX_AGE = 24 * 3600
+USER_AGENT = "Mozilla/5.0 (Linux; Android 12) ChannelFixer/1.0"
+XTREAM_ACTIONS = {"get_live_categories", "get_live_streams", None}
+
+
+def normalise_server(server):
+    server = (server or "").strip()
+    if not server:
+        raise ValueError("Server address is missing")
+    if "://" not in server:
+        server = "http://" + server
+    parts = urllib.parse.urlsplit(server)
+    if parts.scheme not in ("http", "https") or not parts.netloc:
+        raise ValueError("Server address doesn't look like a web address")
+    return f"{parts.scheme}://{parts.netloc}"
+
+
+def fetch(url, timeout=60, user_agent=USER_AGENT, limit=None):
+    req = urllib.request.Request(url, headers={"User-Agent": user_agent, "Accept": "*/*"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        body = resp.read(limit) if limit else resp.read()
+        return resp.status, resp.headers.get("Content-Type", ""), body
+
+
+def lan_addresses():
+    ips = set()
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("10.255.255.255", 1))
+        ips.add(s.getsockname()[0])
+        s.close()
+    except OSError:
+        pass
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ips.add(info[4][0])
+    except OSError:
+        pass
+    return sorted(ip for ip in ips if not ip.startswith("127."))
+
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "ChannelFixer/1.0"
+
+    # ---------- helpers ----------
+    def log_message(self, fmt, *args):
+        # Never print query strings: they contain the provider password.
+        path = self.path.split("?", 1)[0]
+        sys.stderr.write(f"{self.address_string()} {self.command} {path}\n")
+
+    def send_bytes(self, status, body, ctype, extra=None):
+        self.send_response(status)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
+
+    def send_json(self, status, obj):
+        self.send_bytes(status, json.dumps(obj).encode(), "application/json")
+
+    def read_body(self, limit=200 * 1024 * 1024):
+        length = int(self.headers.get("Content-Length") or 0)
+        if length > limit:
+            raise ValueError("Request too large")
+        return self.rfile.read(length)
+
+    def query(self):
+        return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(self.path).query))
+
+    # ---------- routing ----------
+    def do_HEAD(self):
+        self.do_GET()
+
+    def do_GET(self):
+        path = urllib.parse.urlsplit(self.path).path
+        try:
+            if path in STATIC:
+                name, ctype = STATIC[path]
+                with open(os.path.join(HERE, name), "rb") as fh:
+                    return self.send_bytes(200, fh.read(), ctype)
+            if path == "/api/info":
+                return self.send_json(200, {
+                    "ok": True,
+                    "lan": self.server.lan,
+                    "port": self.server.server_address[1],
+                    "ips": lan_addresses() if self.server.lan else [],
+                    "published": os.path.exists(os.path.join(DATA_DIR, "playlist.m3u")),
+                })
+            if path == "/api/xtream":
+                return self.xtream()
+            if path == "/api/m3u":
+                return self.m3u()
+            if path.startswith("/api/iptv/"):
+                return self.iptv(path[len("/api/iptv/"):])
+            if path == "/api/probe":
+                return self.probe()
+            if path == "/api/overrides":
+                return self.send_file_or(os.path.join(DATA_DIR, "overrides.json"), b"{}", "application/json")
+            if path == "/playlist.m3u":
+                return self.send_file_or(os.path.join(DATA_DIR, "playlist.m3u"), None, "audio/x-mpegurl")
+            return self.send_json(404, {"error": "Not found"})
+        except ValueError as e:
+            return self.send_json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            return self.send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def do_POST(self):
+        path = urllib.parse.urlsplit(self.path).path
+        try:
+            if path == "/api/overrides":
+                body = self.read_body(20 * 1024 * 1024)
+                json.loads(body)  # validate
+                self.write_data("overrides.json", body)
+                return self.send_json(200, {"ok": True})
+            if path == "/api/publish":
+                body = self.read_body()
+                if not body.startswith(b"#EXTM3U"):
+                    raise ValueError("That isn't an M3U playlist")
+                self.write_data("playlist.m3u", body)
+                return self.send_json(200, {"ok": True})
+            return self.send_json(404, {"error": "Not found"})
+        except ValueError as e:
+            return self.send_json(400, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            return self.send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    # ---------- endpoints ----------
+    def send_file_or(self, fpath, fallback, ctype):
+        if os.path.exists(fpath):
+            with open(fpath, "rb") as fh:
+                return self.send_bytes(200, fh.read(), ctype)
+        if fallback is None:
+            return self.send_json(404, {"error": "Nothing published yet"})
+        return self.send_bytes(200, fallback, ctype)
+
+    def write_data(self, name, body):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        tmp = os.path.join(DATA_DIR, name + ".tmp")
+        with open(tmp, "wb") as fh:
+            fh.write(body)
+        os.replace(tmp, os.path.join(DATA_DIR, name))
+
+    def xtream(self):
+        q = self.query()
+        action = q.get("action") or None
+        if action not in XTREAM_ACTIONS:
+            raise ValueError("Unsupported action")
+        base = normalise_server(q.get("server"))
+        params = {"username": q.get("username", ""), "password": q.get("password", "")}
+        if action:
+            params["action"] = action
+        url = f"{base}/player_api.php?{urllib.parse.urlencode(params)}"
+        try:
+            status, _, body = fetch(url, timeout=120, user_agent=q.get("ua") or USER_AGENT)
+        except urllib.error.HTTPError as e:
+            return self.send_json(502, {"error": f"Provider answered HTTP {e.code}"})
+        except (urllib.error.URLError, OSError) as e:
+            reason = getattr(e, "reason", e)
+            return self.send_json(502, {"error": f"Couldn't reach the provider: {reason}"})
+        return self.send_bytes(200, body, "application/json")
+
+    def m3u(self):
+        q = self.query()
+        url = (q.get("url") or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("Playlist link must start with http:// or https://")
+        try:
+            _, _, body = fetch(url, timeout=180, user_agent=q.get("ua") or USER_AGENT)
+        except urllib.error.HTTPError as e:
+            return self.send_json(502, {"error": f"Provider answered HTTP {e.code}"})
+        except (urllib.error.URLError, OSError) as e:
+            reason = getattr(e, "reason", e)
+            return self.send_json(502, {"error": f"Couldn't reach the provider: {reason}"})
+        return self.send_bytes(200, body, "text/plain; charset=utf-8")
+
+    def iptv(self, filename):
+        name = filename[:-5] if filename.endswith(".json") else filename
+        if name not in IPTV_FILES:
+            raise ValueError("Unknown catalogue file")
+        os.makedirs(DATA_DIR, exist_ok=True)
+        cached = os.path.join(DATA_DIR, f"catalog-{name}.json")
+        fresh = os.path.exists(cached) and time.time() - os.path.getmtime(cached) < CATALOG_MAX_AGE
+        if not fresh:
+            try:
+                _, _, body = fetch(IPTV_ORG_API + name + ".json", timeout=120)
+                json.loads(body)
+                self.write_data(f"catalog-{name}.json", body)
+            except Exception as e:  # noqa: BLE001
+                if not os.path.exists(cached):
+                    return self.send_json(502, {"error": f"Couldn't download the channel catalogue: {e}"})
+        with open(cached, "rb") as fh:
+            return self.send_bytes(200, fh.read(), "application/json")
+
+    def probe(self):
+        q = self.query()
+        url = (q.get("url") or "").strip()
+        if not url.lower().startswith(("http://", "https://")):
+            raise ValueError("Stream link must start with http:// or https://")
+        started = time.time()
+        result = {"ok": False}
+        try:
+            status, ctype, body = fetch(url, timeout=10, user_agent=q.get("ua") or USER_AGENT, limit=4096)
+            looks_like_video = len(body) >= 188 and not body.lstrip().lower().startswith((b"<", b"{"))
+            looks_like_hls = body.lstrip().startswith(b"#EXTM3U")
+            result = {"ok": status == 200 and (looks_like_video or looks_like_hls),
+                      "status": status, "bytes": len(body), "type": ctype}
+        except urllib.error.HTTPError as e:
+            result = {"ok": False, "status": e.code}
+        except Exception as e:  # noqa: BLE001
+            result = {"ok": False, "error": str(getattr(e, "reason", e))}
+        result["ms"] = int((time.time() - started) * 1000)
+        return self.send_json(200, result)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Channel Fixer local helper")
+    parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--lan", action="store_true",
+                        help="listen on your home network so a TV/phone can open the page and playlist")
+    args = parser.parse_args()
+    host = "0.0.0.0" if args.lan else "127.0.0.1"
+    httpd = ThreadingHTTPServer((host, args.port), Handler)
+    httpd.lan = args.lan
+    print(f"Channel Fixer running: open http://localhost:{args.port} in your browser")
+    if args.lan:
+        for ip in lan_addresses():
+            print(f"  On your home network: http://{ip}:{args.port}  (playlist: http://{ip}:{args.port}/playlist.m3u)")
+    print("Press Ctrl+C to stop.")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        print("\nStopped.")
+
+
+if __name__ == "__main__":
+    main()

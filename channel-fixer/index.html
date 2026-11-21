@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Channel Fixer</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <h1>Channel Fixer</h1>
+    <p class="sub">Clean names, proper logos, merged duplicates and TV-style ordering, exported as a playlist for TiviMate.</p>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- STEP 1: SOURCE -->
+  <section class="card" id="step-source">
+    <h2><span class="num">1</span> Load your channels</h2>
+    <div id="helper-note" class="note"></div>
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-tab="xtream" role="tab">Xtream Codes login</button>
+      <button class="tab" data-tab="url" role="tab">M3U link</button>
+      <button class="tab" data-tab="file" role="tab">M3U file</button>
+    </div>
+
+    <form class="tabpane" data-pane="xtream" id="form-xtream" autocomplete="off">
+      <label>Server address <input name="server" placeholder="http://example-provider.com:8080" required></label>
+      <div class="row2">
+        <label>Username <input name="username" required autocapitalize="off"></label>
+        <label>Password <input name="password" type="password" required></label>
+      </div>
+      <label class="check"><input type="checkbox" name="remember"> Remember login on this computer</label>
+      <p class="hint">Tip: you can paste your provider's full M3U link into "Server address" and the username and password are filled in for you.</p>
+      <button class="btn primary" type="submit">Load channels</button>
+    </form>
+
+    <form class="tabpane hidden" data-pane="url" id="form-url" autocomplete="off">
+      <label>M3U playlist link <input name="url" placeholder="http://provider:8080/get.php?username=…&password=…&type=m3u_plus" required></label>
+      <button class="btn primary" type="submit">Load channels</button>
+    </form>
+
+    <div class="tabpane hidden" data-pane="file">
+      <label class="drop" id="drop">
+        <input type="file" id="file-input" accept=".m3u,.m3u8,.txt,audio/x-mpegurl">
+        <strong>Choose or drop an M3U file</strong>
+        <span>Download it from your provider first (usually the "m3u_plus" link).</span>
+      </label>
+    </div>
+
+    <div id="load-status" class="status"></div>
+  </section>
+
+  <!-- STEP 2: SETTINGS -->
+  <section class="card hidden" id="step-settings">
+    <h2><span class="num">2</span> Choose what to keep</h2>
+    <h3>Countries <small>(in the order you tick them; channel numbers follow this order)</small></h3>
+    <div id="countries" class="chips"></div>
+    <button class="btn link" id="more-countries">Show all countries</button>
+
+    <div class="settings-grid">
+      <label>When there are several copies (SD/HD/FHD/4K)
+        <select id="opt-quality">
+          <option value="fhd">Prefer FHD, then HD (recommended)</option>
+          <option value="4k">Prefer the highest quality (4K first)</option>
+          <option value="hd">Prefer HD (saves bandwidth)</option>
+          <option value="sd">Prefer the lowest quality (slow connection)</option>
+        </select>
+      </label>
+      <label>Regional and +1 versions
+        <select id="opt-regional">
+          <option value="group">Own "Regional" and "+1" groups</option>
+          <option value="after">Straight after the main channel</option>
+          <option value="hide">Hide them</option>
+        </select>
+      </label>
+      <label>Group names
+        <select id="opt-groupnames">
+          <option value="auto">Add the country only when several are ticked</option>
+          <option value="always">Always add the country (UK • News)</option>
+          <option value="never">Never add the country (News)</option>
+        </select>
+      </label>
+      <label id="opt-format-wrap">Stream type
+        <select id="opt-format">
+          <option value="ts">MPEG-TS (.ts, the TiviMate default)</option>
+          <option value="m3u8">HLS (.m3u8)</option>
+        </select>
+      </label>
+    </div>
+    <div class="checks">
+      <label class="check"><input type="checkbox" id="opt-unmatched" checked> Keep channels that aren't in the catalogue (with a cleaned name)</label>
+      <label class="check"><input type="checkbox" id="opt-backups"> Keep the other copies in a "Backups" group</label>
+      <label class="check"><input type="checkbox" id="opt-adult" checked> Hide adult channels</label>
+    </div>
+  </section>
+
+  <!-- STEP 3: REVIEW -->
+  <section class="card hidden" id="step-review">
+    <h2><span class="num">3</span> Check the results</h2>
+    <div id="stats" class="stats"></div>
+    <div class="toolbar">
+      <input id="f-search" type="search" placeholder="Search channels…">
+      <select id="f-status">
+        <option value="">All channels</option>
+        <option value="check">Needs a look (guessed or unrecognised)</option>
+        <option value="unmatched">Unrecognised</option>
+        <option value="fuzzy">Guessed matches</option>
+        <option value="merged">Merged copies</option>
+        <option value="nologo">No logo</option>
+        <option value="hidden">Hidden by me</option>
+      </select>
+      <select id="f-group"><option value="">All groups</option></select>
+      <button class="btn" id="btn-test" title="Checks which copy of each merged channel actually plays">Test streams</button>
+    </div>
+    <div id="test-status" class="status"></div>
+    <div class="table-wrap">
+      <table class="chan">
+        <thead><tr><th>#</th><th>Logo</th><th>Channel</th><th>Group</th><th>Source</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div class="pager" id="pager"></div>
+  </section>
+
+  <!-- STEP 4: EXPORT -->
+  <section class="card hidden" id="step-export">
+    <h2><span class="num">4</span> Get it into TiviMate</h2>
+    <div class="export-btns">
+      <button class="btn primary" id="btn-download">Download playlist (.m3u)</button>
+      <button class="btn" id="btn-publish">Share on my home network</button>
+      <button class="btn" id="btn-overrides-export">Back up my fixes</button>
+      <label class="btn">Restore fixes<input type="file" id="overrides-import" accept=".json" hidden></label>
+    </div>
+    <div id="export-status" class="status"></div>
+    <div class="howto">
+      <h3>In TiviMate</h3>
+      <ol>
+        <li>Settings → Playlists → <b>Add playlist</b> → <b>M3U playlist</b>.</li>
+        <li>Enter the playlist link shown above, or pick the downloaded file.</li>
+        <li>For the TV guide, the playlist already carries your provider's EPG link. If TiviMate doesn't pick it up, add it under Settings → EPG: <code id="epg-url">—</code> <button class="btn tiny" id="copy-epg">Copy</button></li>
+        <li>Keep your normal Xtream login as a second playlist if you want films and series, and hide its live channels.</li>
+      </ol>
+      <p class="hint">The playlist contains your login inside each stream link, so don't share the file.</p>
+    </div>
+  </section>
+</main>
+
+<dialog id="match-dialog">
+  <form method="dialog" class="dialog-body">
+    <h3>Change match for <span id="md-name"></span></h3>
+    <p class="hint" id="md-raw"></p>
+    <input id="md-search" type="search" placeholder="Search the catalogue…" autocomplete="off">
+    <div id="md-results" class="results"></div>
+    <div class="dialog-actions">
+      <button class="btn" value="none" id="md-unmatch">Not in catalogue</button>
+      <button class="btn" value="reset" id="md-reset">Back to automatic</button>
+      <button class="btn primary" value="cancel">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>

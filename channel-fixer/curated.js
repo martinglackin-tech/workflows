@@ -15,7 +15,7 @@
     US: {
       'Main Channels': ['ABC*', 'CBS*', 'NBC*', 'FOX*', 'PBS*', 'The CW*', 'ION*'],
       'News': ['CNN', 'Fox News', 'MSNBC | MS NOW', 'CNBC', 'NewsNation', 'Fox Business', 'HLN', 'Bloomberg TV',
-        'CBS News', 'ABC News Live', 'NBC News Now', 'TODAY All Day', 'NBC News*', 'NBCLX | NBC LX', 'Newsmax', 'The Weather Channel', 'C-SPAN', 'BBC News'],
+        'CBS News', 'ABC News Live | ABC News', 'NBC News Now', 'TODAY All Day', 'NBC News*', 'NBCLX | NBC LX', 'Newsmax', 'The Weather Channel', 'C-SPAN', 'BBC News'],
       'Entertainment': ['TNT', 'TBS', 'USA Network', 'FX', 'AMC', 'A&E', 'HGTV', 'TLC', 'Food Network', 'Discovery Channel | Discovery',
         'History', 'Bravo', 'E!', 'Comedy Central', 'Paramount Network', 'Lifetime', 'Hallmark Channel', 'Freeform',
         'Syfy', 'FXX', 'BBC America', 'National Geographic', 'Nat Geo Wild', 'Animal Planet', 'Travel Channel',

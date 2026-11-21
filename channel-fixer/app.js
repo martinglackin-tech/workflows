@@ -191,11 +191,16 @@ function cleanName(raw, cc, resolve) {
     .replace(/^[\s\-:|_.,/]+|[\s\-:|_.,/]+$/g, '').trim();
   // trailing country code that repeats the prefix: "BBC One UK"
   const country = nameCc || cc;
+  // trailing bracketed extras: "CBS (New York)", "HBO [East]", "Squid Game (2021)"
+  let place = '';
+  for (let t; (t = s.match(/\s*[\[(]([^\])]{1,30})[\])]\s*$/)) && s.length > t[0].length;) {
+    place += ' ' + t[1]; s = s.slice(0, -t[0].length).trim();
+  }
   const tail = s.match(/\s[\[(]?([A-Za-z]{2,3})[\])]?$/);
   if (tail && country && resolve(tail[1]) === country && s.split(' ').length > 1) s = s.slice(0, -tail[0].length).trim();
   s = s.replace(/^[\s\-:|_.,/]+|[\s\-:|_.,/]+$/g, '').trim();
   if (!s) return { separator: true };
-  return { clean: s, nameCc, quality, hevc, backup, timeshift, tag };
+  return { clean: s, nameCc, quality, hevc, backup, timeshift, tag, place: place.trim() };
 }
 
 // ---------------------------------------------------------------- logos
@@ -478,7 +483,7 @@ function prepareEntries(rawEntries, resolve, cat) {
     const c = cleanName(r.name, groupCc, resolve);
     if (c.separator) return;
     const e = { ...r, idx: i, clean: c.clean, quality: c.quality, hevc: c.hevc, backup: c.backup,
-      timeshift: c.timeshift, groupCat: categoryFromGroup(r.group) || categoryFromGroup(c.tag) };
+      timeshift: c.timeshift, place: c.place, groupCat: categoryFromGroup(r.group) || categoryFromGroup(c.tag) };
     e.cc = c.nameCc || groupCc || null;
     e.baseKey = (e.cc || '') + '|' + norm(e.clean);
     e.auto = cat ? matchExact(cat, e.clean, e.cc) : null;
@@ -684,6 +689,7 @@ function curatedScore(entry, ch) {
       if (words.length > e.words.length + (e.wild ? 5 : 3)) continue; // "NCAAF 014: Ole Miss at Oklahoma … ABC" is not ABC
       for (let i = 0; i + e.words.length <= words.length; i++) {
         if (e.words.every((w, j) => words[i + j] === w)) {
+          if (e.wild && /^(news|sports?)$/.test(words[i + e.words.length] || '')) break; // "ABC News" is not ABC
           s = 4 + (words.length - e.words.length) / 10 + (PREFERRED_LOCAL.test(norm(n)) ? 0 : 0.5);
           break;
         }
@@ -748,6 +754,7 @@ function variantScore(v, order) {
   if (v.test === 'ok') s -= 100;
   if (v.backup) s += 5;
   if (v.hevc) s += 1; // HEVC plays on fewer devices
+  if (v.place && !/new\s*york|east|nyc/i.test(v.place)) s += 3; // several cities merged: prefer New York / East
   return s * 100000 + v.idx;
 }
 function countryLabelShort(cc) { return cc === 'ZZ' ? 'Other' : cc; }

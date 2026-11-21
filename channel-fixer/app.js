@@ -637,7 +637,14 @@ function buildChannels(entries, cat, overrides, opts) {
     ch.out = !reason;
   }
   for (const cc of opts.curate || []) {
-    if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 120);
+    if (lists[cc] && opts.countries.includes(cc)) curate(channels.filter(c => c.cc === cc), lists[cc], opts.maxPerCountry || 120,
+      opts.needOwnLogo && opts.myLogos && opts.myLogos.size);
+  }
+  // only channels with a logo of your own (a file in the logos folder, or one you set) — after curation, which renames
+  if (opts.needOwnLogo && opts.myLogos && opts.myLogos.size) {
+    for (const ch of channels) {
+      if (ch.out && !ch.ov.logo && ch.ov.hidden !== false && !(ch.logo || '').startsWith('/logos/')) { ch.out = false; ch.excluded = 'no logo'; }
+    }
   }
   // Placement of regional / +1 versions
   for (const ch of channels) {
@@ -744,7 +751,7 @@ function curatedScore(entry, ch) {
   }
   return best;
 }
-function curate(chs, list, max) {
+function curate(chs, list, max, needLogo) {
   const entries = curatedEntries(list);
   const free = ch => ch.out && !ch.keep && ch.ov.hidden !== false;
   const pick = new Map();
@@ -761,7 +768,12 @@ function curate(chs, list, max) {
   }
   // one station per network: "Seven Sydney" and "Channel 7 Melbourne" are the same channel
   const used = new Set();
-  const ranked = [...pick.entries()].sort((a, b) => (a[0].pos - b[0].pos) || (a[0].catIdx - b[0].catIdx)).filter(([, { ch }]) => {
+  const ranked = [...pick.entries()].sort((a, b) => (a[0].pos - b[0].pos) || (a[0].catIdx - b[0].catIdx)).filter(([e, { ch }]) => {
+    // "only channels with your own logo": check before the limit, so the next channel takes the place
+    if (needLogo && ch.pickLogo && !ch.ov.logo) {
+      ch.pickLogo([e.label, ...e.alts.map(a => a.key)]);
+      if (!(ch.logo || '').startsWith('/logos/')) return false;
+    }
     const id = ch.match ? ch.match.ch.id + (ch.timeshift ? '+' + ch.timeshift : '') : ch.key;
     if (used.has(id)) return false;
     used.add(id); return true;
@@ -859,7 +871,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, noSeries: true, needOwnLogo: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -1090,7 +1102,7 @@ if (typeof document !== 'undefined') (function page() {
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
       '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional',
-      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries' };
+      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift', '#opt-series': 'noSeries', '#opt-ownlogo': 'needOwnLogo' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';

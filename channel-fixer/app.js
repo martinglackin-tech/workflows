@@ -105,6 +105,7 @@ function countryFromText(text, resolve) {
   return null;
 }
 const SPORT_WORDS_RE = /tennis|\batp\b|\bwta\b|wimbledon|roland\s*garros|french\s*open|australian\s*open|\bus\s*open\b|davis\s*cup|\bppv\b|\bncaa[fbm]?\b|\bnascar\b|\bmls\b|\bmma\b|\bevents?\b|fixtures|\bmatch(?:es)?\b|\bvs\.?\b|\bnfl\b|\bnba\b|\bnhl\b|\bmlb\b|\bufc\b|\bwwe\b|football|soccer|premier\s*league|champions\s*league|\bf1\b|formula\s*1|motogp|golf|cricket|rugby|boxing|darts|snooker|racing|\bsports?\b/i;
+const DOC_BRANDS_RE = /discovery|\bhistory\b|nat\s*geo|national\s*geographic|animal\s*planet|smithsonian|\bscience\b|documentar|\bdocs?\b|\beden\b|curiosity|love\s*nature|\bblaze\b|\bpbs america\b|\bquest\b(?!\s*red)/i;
 function categoryFromGroup(group) {
   const g = (group || '').toLowerCase();
   if (/adult|xxx|18\+|porn/.test(g)) return 'Adult';
@@ -587,6 +588,8 @@ function buildChannels(entries, cat, overrides, opts) {
     if (!m && SPORT_WORDS_RE.test(ch.variants.map(v => v.name).join(' '))) groupCat = 'Sports';
     if (!catName || (groupCat === 'Adult')) catName = groupCat === 'Regional' ? (catName || 'Entertainment') : (groupCat || catName);
     if (!catName) catName = 'Other';
+    // documentary brands the catalogue files under Entertainment (popular-only countries regroup them anyway)
+    if ((catName === 'Entertainment' || catName === 'Other') && DOC_BRANDS_RE.test(name)) catName = 'Documentary';
     ch.isRegional = !!(m && m.feed) || groupCat === 'Regional';
     ch.mainKey = m && (m.feed || ch.timeshift) ? `${ch.cc}|${m.ch.id}` : null;
     ch.autoCat = catName;
@@ -613,6 +616,9 @@ function buildChannels(entries, cat, overrides, opts) {
     else if (opts.noKids && ch.cat === 'Kids') reason = 'kids';
     // in "popular only" countries the list itself picks one station per network and sets the group
     else if (opts.noOther && ch.cat === 'Other' && !curatedCcs.has(ch.cc)) reason = 'other';
+    else if (opts.noLifestyle && ch.cat === 'Lifestyle' && !curatedCcs.has(ch.cc)) reason = 'lifestyle';
+    else if (opts.noDocumentary && ch.cat === 'Documentary' && !curatedCcs.has(ch.cc)) reason = 'documentary';
+    else if (opts.noTimeshift && ch.timeshift && !curatedCcs.has(ch.cc)) reason = '+1';
     else if (opts.noRegional && ch.isRegional && !regionalKeep.has(ch.cc) && !curatedCcs.has(ch.cc)) reason = 'regional';
     else if (userWords(ch)) reason = 'your words';
     else if (ch.status === 'unmatched' && !opts.unmatched) reason = 'unrecognised';
@@ -847,7 +853,7 @@ if (typeof document !== 'undefined') (function page() {
     opts: { countries: [], quality: 'fhd', regional: 'group', unmatched: true, backups: false, adult: true,
       groupNames: 'auto', format: 'ts', logos: 'provider-fill', serveLogos: true, englishOnly: true, noSports: true, noCrime: true,
       excludeWords: '', perCountry: true, noReligion: true, noKids: true, noOther: true, noRegional: true,
-      regionalKeep: 'UK', curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
+      regionalKeep: '', noLifestyle: true, noDocumentary: true, noTimeshift: true, curate: ['US', 'CA', 'AU'], maxPerCountry: 120,
       keepText: 'Sky Sports Tennis: FHD, HD\nSky Sports Mix\nSky Sports Main Event: UHD, FHD' },
   };
   const store = {
@@ -873,6 +879,8 @@ if (typeof document !== 'undefined') (function page() {
     // the limit went from 100 to 120; move saved settings over once (a value you chose yourself is kept after that)
     // channels without a provider logo now get a transparent one by default
     if (!S.opts.logosFill) { if (S.opts.logos === 'provider') S.opts.logos = 'provider-fill'; S.opts.logosFill = true; }
+    // UK regional channels are no longer kept by default
+    if (!S.opts.ukTrim) { if (S.opts.regionalKeep === 'UK') S.opts.regionalKeep = ''; S.opts.ukTrim = true; }
     if (!S.opts.limit120) { if (S.opts.maxPerCountry === 100) S.opts.maxPerCountry = 120; S.opts.limit120 = true; }
     try {
       S.info = await getJson('/api/info');
@@ -1075,7 +1083,8 @@ if (typeof document !== 'undefined') (function page() {
     }
     const checks = { '#opt-unmatched': 'unmatched', '#opt-backups': 'backups', '#opt-adult': 'adult',
       '#opt-english': 'englishOnly', '#opt-sports': 'noSports', '#opt-crime': 'noCrime', '#opt-percountry': 'perCountry',
-      '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional' };
+      '#opt-religion': 'noReligion', '#opt-servelogos': 'serveLogos', '#opt-kids': 'noKids', '#opt-other': 'noOther', '#opt-noregional': 'noRegional',
+      '#opt-lifestyle': 'noLifestyle', '#opt-documentary': 'noDocumentary', '#opt-timeshift': 'noTimeshift' };
     $('#opt-regionalkeep').value = S.opts.regionalKeep || '';
     $('#opt-regionalkeep').addEventListener('change', e => { S.opts.regionalKeep = e.target.value; saveSettings(); rebuild(); });
     $('#opt-keep').value = S.opts.keepText || '';
